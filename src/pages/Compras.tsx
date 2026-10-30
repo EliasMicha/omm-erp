@@ -22,6 +22,7 @@ import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
 import { totalDeOC, deudaDeOC, resumirDeuda, deudaPorProyecto, resumenPorProyecto, type DeudaOC, type FilaProyecto, type EntradaTeorico } from '../lib/deudaCompras'
 import { avisarPagoALogistica, CORREO_LOGISTICA } from '../lib/avisoPagoLogistica'
 import { comoQuedo, camposCotejados, estaCotejado } from '../lib/cotejo'
+import { destinosDe, layoutTercerosBbva, layoutSpei, folioSinGuiones, descargarTxt, type Destino, type LineaPago } from '../lib/layoutsBancarios'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type POStatus = 'borrador' | 'aprobada' | 'pedida' | 'recibida_parcial' | 'recibida' | 'cancelada'
@@ -1443,6 +1444,9 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const [pagosPorOC, setPagosPorOC] = useState<Record<string, { n: number; pagado: number }>>({})
   // OC sobre la que se está registrando un pago desde la lista.
   const [pagandoOC, setPagandoOC] = useState<PurchaseOrder | null>(null)
+  // Pago masivo: OCs palomeadas para sacar el TXT del banco de un jalón.
+  const [selPago, setSelPago] = useState<Set<string>>(new Set())
+  const [showPagoMasivo, setShowPagoMasivo] = useState(false)
   // Cuantos documentos del proveedor trae cada OC, para no tener que abrirlas
   // una por una nada mas para ver si ya llego el acuse.
   const [docsPorOC, setDocsPorOC] = useState<Record<string, number>>({})
@@ -1479,6 +1483,24 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     const meta = totalMostrado(o)
     return pagado > 0 && meta > 0 && pagado >= meta - 0.5
   }
+
+  // ── Pago masivo ──────────────────────────────────────────────────────
+  // Lo que falta por pagar de una OC, con la misma aritmética de la columna
+  // Pago. Solo se pueden palomear las que deben algo, en pesos (el layout del
+  // banco es en MXN; una OC en dólares se paga aparte) y que no están canceladas.
+  const saldoDe = (o: PurchaseOrder) => Math.max(0, redondearCentavos(totalMostrado(o) - (pagosPorOC[o.id]?.pagado || 0)))
+  const motivoNoPagable = (o: PurchaseOrder): string | null => {
+    if (o.status === 'cancelada') return 'Cancelada'
+    if (estaPagada(o) || saldoDe(o) <= 0.5) return 'Ya está pagada'
+    if (o.currency === 'USD') return 'Está en dólares: el TXT del banco es en pesos'
+    if (!o.supplier_id) return 'No tiene proveedor'
+    return null
+  }
+  const togglePago = (id: string) => setSelPago(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
+  })
 
   const load = () => {
     setLoading(true)
@@ -1657,6 +1679,23 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
           </div>
         } />
 
+      {selPago.size > 0 && (() => {
+        const sel = orders.filter(o => selPago.has(o.id))
+        const total = sel.reduce((t, o) => t + saldoDe(o), 0)
+        return (
+          <div style={{
+            position: 'sticky', top: 0, zIndex: 5, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+            background: '#0f2a20', border: '1px solid #10B98166', borderRadius: 10, padding: '10px 14px', marginBottom: 12,
+          }}>
+            <span style={{ color: '#d1fae5', fontSize: 13 }}>
+              <b>{sel.length}</b> {sel.length === 1 ? 'orden seleccionada' : 'órdenes seleccionadas'} · por pagar <b>{F(total)}</b>
+            </span>
+            <Btn variant="primary" onClick={() => setShowPagoMasivo(true)}><Download size={14} /> Generar TXT de pago</Btn>
+            <button onClick={() => setSelPago(new Set())} style={{ background: 'none', border: 'none', color: '#6ee7b7', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>Quitar selección</button>
+          </div>
+        )
+      })()}
+
       {/* Search + filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap', fontSize: isMobile ? 11 : 12 }}>
         <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '0 0 220px' }}>
@@ -1729,6 +1768,19 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>
+              <Th>{(() => {
+                const pagables = lista.filter(o => !motivoNoPagable(o))
+                const todas = pagables.length > 0 && pagables.every(o => selPago.has(o.id))
+                return (
+                  <input type="checkbox" checked={todas} disabled={pagables.length === 0}
+                    title={pagables.length ? `Seleccionar las ${pagables.length} órdenes por pagar que estás viendo` : 'No hay órdenes por pagar en esta vista'}
+                    onChange={() => setSelPago(prev => {
+                      const n = new Set(prev)
+                      if (todas) pagables.forEach(o => n.delete(o.id)); else pagables.forEach(o => n.add(o.id))
+                      return n
+                    })} style={{ cursor: 'pointer', accentColor: '#10B981' }} />
+                )
+              })()}</Th>
               <Th>OC #</Th><Th>Descripción</Th>
               {thf('Proveedor', 'proveedor')}{thf('Cotización', 'cotizacion')}{thf('Lead', 'lead')}
               {thf('Especialidad', 'especialidad')}{thf('Fase', 'fase')}{thf('Estado', 'estado')}
@@ -1737,7 +1789,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               {thf('Total MXN', 'moneda', true)}{thf('Total USD', 'moneda', true)}<Th></Th>
           </tr></thead>
           <tbody>
-            {lista.length === 0 && <tr><td colSpan={16}><EmptyState message={colFilters.activeCount > 0 ? 'Ninguna orden cumple los filtros de columna' : 'Sin órdenes de compra'} /></td></tr>}
+            {lista.length === 0 && <tr><td colSpan={17}><EmptyState message={colFilters.activeCount > 0 ? 'Ninguna orden cumple los filtros de columna' : 'Sin órdenes de compra'} /></td></tr>}
             {lista.map(o => {
               const st = PO_STATUS_CFG[o.status]
               const esp = SPECIALTY_CONFIG[o.specialty]
@@ -1761,7 +1813,17 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               // Total con IVA 16% para mostrar al usuario (igual a pagos reales / o.total)
               const displayTotal = totalMostrado(o)
               return (
-                <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(o.id)}>
+                <tr key={o.id} style={{ cursor: 'pointer', background: selPago.has(o.id) ? '#10B98110' : undefined }} onClick={() => onOpen(o.id)}>
+                  <Td>{(() => {
+                    const motivo = motivoNoPagable(o)
+                    return (
+                      <span onClick={e => e.stopPropagation()} title={motivo || 'Agregar al pago masivo'}>
+                        <input type="checkbox" checked={selPago.has(o.id)} disabled={!!motivo}
+                          onChange={() => togglePago(o.id)}
+                          style={{ cursor: motivo ? 'not-allowed' : 'pointer', accentColor: '#10B981', opacity: motivo ? 0.25 : 1 }} />
+                      </span>
+                    )
+                  })()}</Td>
                   {/* Un solo identificador por renglon: el folio nuevo cuando
                       existe, y el consecutivo viejo solo en las compras de
                       bodega, que no cuelgan de ninguna cotizacion. */}
@@ -1855,6 +1917,17 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       {showFromQuote && <POFromQuoteModal onClose={() => setShowFromQuote(false)} onCreated={id => { setShowFromQuote(false); onOpen(id) }} />}
       {showMasivas && <OCMasivasModal onClose={() => setShowMasivas(false)} onCreadas={() => { setShowMasivas(false); load() }} />}
       {showFromPDF && <POFromPDFModal onClose={() => setShowFromPDF(false)} onCreated={(id) => { setShowFromPDF(false); load(); onOpen(id) }} />}
+      {showPagoMasivo && (
+        <PagoMasivoModal
+          ocs={orders.filter(o => selPago.has(o.id) && !motivoNoPagable(o)).map(o => ({
+            id: o.id, folio: folioOC(o), supplierId: o.supplier_id as string,
+            supplierName: (o.supplier as any)?.name || '(sin nombre)', saldo: saldoDe(o),
+            total: totalMostrado(o), pagado: pagosPorOC[o.id]?.pagado || 0, status: o.status,
+          }))}
+          onClose={() => setShowPagoMasivo(false)}
+          onRegistrados={() => { setShowPagoMasivo(false); setSelPago(new Set()); load() }}
+        />
+      )}
       {pagandoOC && (
         // Mismo modal que vive dentro del detalle de la OC (PaymentsSection).
         // Al guardar puede mover la OC a 'pedida', asi que recargamos la lista
@@ -1869,6 +1942,298 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
           onCreated={() => { setPagandoOC(null); load() }}
         />
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PAGO MASIVO DE OC → TXT para BBVA Net Cash
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Se palomean OCs en la lista y aquí se arma el archivo del banco:
+//   · proveedor con cuenta BBVA → layout de TERCEROS BBVA
+//   · proveedor en otro banco   → layout SPEI
+// Un renglón por OC, con el folio SIN GUIONES como motivo/concepto. Así el
+// cargo llega al estado de cuenta con su folio y su monto exacto, y la
+// conciliación lo liga sola a la OC.
+//
+// Bajar el TXT NO marca nada como pagado: el dinero sale hasta que alguien lo
+// autoriza en Net Cash. El registro en el ERP es un segundo paso, explícito.
+
+interface OCParaPago {
+  id: string
+  folio: string
+  supplierId: string
+  supplierName: string
+  saldo: number
+  total: number
+  pagado: number
+  status: POStatus
+}
+
+function hoyLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; onClose: () => void; onRegistrados: () => void }) {
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState('')
+  const [destinos, setDestinos] = useState<Record<string, Destino[]>>({})
+  const [elegido, setElegido] = useState<Record<string, number>>({})
+  const [historial, setHistorial] = useState<Record<string, { veces: number; ultima: string | null }>>({})
+  const [montos, setMontos] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    ocs.forEach(o => { m[o.id] = o.saldo.toFixed(2) })
+    return m
+  })
+  const [descargado, setDescargado] = useState<{ bbva: number; spei: number } | null>(null)
+  const [registrando, setRegistrando] = useState(false)
+  const [resultado, setResultado] = useState<{ ok: number; fallos: string[]; avisosFallidos: string[] } | null>(null)
+
+  // Se carga una vez al abrir: la lista de OCs no cambia mientras el modal está abierto.
+  useEffect(() => {
+    (async () => {
+      try {
+        const provIds = Array.from(new Set(ocs.map(o => o.supplierId)))
+        const { data, error: e1 } = await supabase.from('supplier_bank_accounts')
+          .select('supplier_id,clabe,cuenta_bancaria,banco,bnet_codigo,moneda,is_default,etiqueta')
+          .in('supplier_id', provIds)
+        if (e1) throw e1
+        const porProv: Record<string, Destino[]> = {}
+        const elig: Record<string, number> = {}
+        provIds.forEach(id => {
+          porProv[id] = destinosDe(((data as any[]) || []).filter(a => a.supplier_id === id))
+          elig[id] = 0
+        })
+        setDestinos(porProv)
+        setElegido(elig)
+        const numeros = Object.values(porProv).flat().map(d => d.numero)
+        if (numeros.length > 0) {
+          const { data: h, error: e2 } = await supabase.rpc('proveedor_cuentas_historial', { p_numeros: numeros })
+          if (!e2) {
+            const hh: Record<string, { veces: number; ultima: string | null }> = {}
+            ;((h as any[]) || []).forEach(r => { hh[r.numero] = { veces: Number(r.veces) || 0, ultima: r.ultima || null } })
+            setHistorial(hh)
+          }
+        }
+      } catch (e: any) {
+        setError('No se pudieron leer las cuentas de los proveedores: ' + (e?.message || String(e)))
+      }
+      setCargando(false)
+    })()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Agrupado por proveedor, en el orden en que llegaron.
+  const grupos: { supplierId: string; nombre: string; ocs: OCParaPago[] }[] = []
+  ocs.forEach(o => {
+    let g = grupos.find(x => x.supplierId === o.supplierId)
+    if (!g) { g = { supplierId: o.supplierId, nombre: o.supplierName, ocs: [] }; grupos.push(g) }
+    g.ocs.push(o)
+  })
+
+  const destinoDe = (supplierId: string): Destino | null => {
+    const ds = destinos[supplierId] || []
+    return ds[elegido[supplierId] ?? 0] || null
+  }
+  const problemaMonto = (o: OCParaPago): string | null => {
+    const n = Number(montos[o.id])
+    if (!isFinite(n) || n <= 0) return 'Monto inválido'
+    if (n > o.saldo + 0.5) return `Es más de lo que se debe (${F(o.saldo)})`
+    return null
+  }
+
+  interface Renglon { oc: OCParaPago; linea: LineaPago }
+  const renglones: Renglon[] = []
+  const sinCuenta: string[] = []
+  grupos.forEach(g => {
+    const d = destinoDe(g.supplierId)
+    if (!d) { sinCuenta.push(g.nombre); return }
+    g.ocs.forEach(o => {
+      if (problemaMonto(o)) return
+      renglones.push({ oc: o, linea: { folio: o.folio, monto: Math.round(Number(montos[o.id]) * 100) / 100, titular: g.nombre, destino: d } })
+    })
+  })
+  const conProblemaMonto = ocs.filter(o => problemaMonto(o) && destinoDe(o.supplierId))
+  const bbva = renglones.filter(r => r.linea.destino.tipo === 'bbva')
+  const spei = renglones.filter(r => r.linea.destino.tipo === 'spei')
+  const suma = (rs: Renglon[]) => rs.reduce((t, r) => t + r.linea.monto, 0)
+
+  function descargar() {
+    setError('')
+    try {
+      const f = hoyLocal().replace(/-/g, '')
+      if (bbva.length > 0) descargarTxt(`PAGO_PROVEEDORES_BBVA_${f}.txt`, layoutTercerosBbva(bbva.map(r => r.linea)))
+      // Dos descargas seguidas: algunos navegadores bloquean la segunda si sale en el mismo instante.
+      if (spei.length > 0) setTimeout(() => descargarTxt(`PAGO_PROVEEDORES_SPEI_${f}.txt`, layoutSpei(spei.map(r => r.linea))), 500)
+      setDescargado({ bbva: bbva.length, spei: spei.length })
+    } catch (e: any) {
+      setError('No se pudo armar el archivo: ' + (e?.message || String(e)))
+    }
+  }
+
+  async function registrar() {
+    const total = suma(renglones)
+    if (!window.confirm(
+      `¿Ya autorizaste estos pagos en BBVA Net Cash?\n\n` +
+      `Se registrarán ${renglones.length} pagos por ${F(total)} con fecha de hoy, ` +
+      `las órdenes en borrador pasan a "Pedida" y se avisa a Logística de cada una.\n\n` +
+      `Si el banco rechazó alguno, quítalo de la lista antes de registrar.`
+    )) return
+    setRegistrando(true)
+    const fecha = hoyLocal()
+    const fallos: string[] = []
+    const avisosFallidos: string[] = []
+    let ok = 0
+    for (const r of renglones) {
+      const o = r.oc
+      const ref = folioSinGuiones(o.folio)
+      const { error: insErr } = await supabase.from('purchase_order_payments').insert({
+        purchase_order_id: o.id,
+        amount: r.linea.monto,
+        currency: 'MXN',
+        payment_date: fecha,
+        method: 'transferencia',
+        reference: ref,
+        notes: `Pago masivo · layout ${r.linea.destino.tipo === 'bbva' ? 'terceros BBVA' : 'SPEI'} ${fecha} · ${r.linea.destino.etiqueta}`,
+      })
+      if (insErr) { fallos.push(`${o.folio}: ${insErr.message}`); continue }
+      ok++
+      // Igual que el pago individual: el primer pago fija lo cotejado y la pasa a Pedida.
+      if (o.status === 'borrador' || o.status === 'aprobada') {
+        try {
+          await commitCotejadoItemsDB(o.id)
+          await supabase.from('purchase_orders').update({ status: 'pedida' }).eq('id', o.id)
+        } catch (e: any) { fallos.push(`${o.folio}: pago guardado, pero no se pudo pasar a Pedida (${e?.message || e})`) }
+      }
+      const aviso = await avisarPagoALogistica({
+        poId: o.id, monto: r.linea.monto, moneda: 'MXN', fecha, metodo: 'transferencia',
+        referencia: ref, conComprobante: false, totalOC: o.total, pagadoAntes: o.pagado,
+      })
+      if (!aviso.ok) avisosFallidos.push(o.folio)
+    }
+    setRegistrando(false)
+    setResultado({ ok, fallos, avisosFallidos })
+  }
+
+  const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }
+  const modalStyle: React.CSSProperties = { background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 900, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }
+  const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>Pago masivo · TXT para BBVA Net Cash</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: '#777', marginBottom: 16, lineHeight: 1.5 }}>
+          Un pago por orden. El concepto de cada uno es el folio sin guiones, para que la conciliación lo ligue sola.
+          Proveedores con cuenta BBVA salen en el archivo de <b style={{ color: '#aaa' }}>terceros BBVA</b>; los de otros bancos, en el de <b style={{ color: '#aaa' }}>SPEI</b>.
+        </div>
+
+        {error && <div style={{ background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: 8, padding: 10, color: '#f87171', fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        {cargando ? <Loading /> : resultado ? (
+          <div style={{ fontSize: 13, color: '#ccc', lineHeight: 1.7 }}>
+            <div style={{ color: '#10B981', fontWeight: 600, marginBottom: 6 }}>✓ {resultado.ok} pagos registrados.</div>
+            {resultado.fallos.length > 0 && (
+              <div style={{ color: '#f87171', marginBottom: 6 }}>
+                No se pudo completar:<br />{resultado.fallos.map(f => <div key={f}>· {f}</div>)}
+              </div>
+            )}
+            {resultado.avisosFallidos.length > 0 && (
+              <div style={{ color: '#D97706', marginBottom: 6 }}>
+                El pago quedó guardado, pero el aviso a Logística no salió para: {resultado.avisosFallidos.join(', ')}. Avísales tú.
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}><Btn variant="primary" onClick={onRegistrados}>Listo</Btn></div>
+          </div>
+        ) : (
+          <>
+            {grupos.map(g => {
+              const ds = destinos[g.supplierId] || []
+              const d = destinoDe(g.supplierId)
+              const h = d ? historial[d.numero] : null
+              return (
+                <div key={g.supplierId} style={{ border: '1px solid #262626', borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', background: '#1a1a1a' }}>
+                    <div style={{ fontWeight: 600, color: '#fff', fontSize: 13, flex: '1 1 200px' }}>{g.nombre}</div>
+                    {ds.length === 0 ? (
+                      <span style={{ color: '#f87171', fontSize: 12 }}>Sin cuenta en pesos registrada · agrégala en Proveedores para incluirlo</span>
+                    ) : (
+                      <>
+                        <select value={elegido[g.supplierId] ?? 0} onChange={e => setElegido(prev => ({ ...prev, [g.supplierId]: Number(e.target.value) }))}
+                          disabled={!!descargado}
+                          style={{ background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 6, color: '#ddd', padding: '4px 8px', fontSize: 12, fontFamily: 'inherit' }}>
+                          {ds.map((x, i) => <option key={x.tipo + x.numero} value={i}>{x.etiqueta}</option>)}
+                        </select>
+                        {h && h.veces > 0
+                          ? <span style={{ color: '#10B981', fontSize: 11 }}>✓ {h.veces} pagos previos a esta cuenta{h.ultima ? ` · último ${formatDate(h.ultima)}` : ''}</span>
+                          : <span style={{ color: '#D97706', fontSize: 11, fontWeight: 600 }}>⚠ Nunca se le ha pagado a esta cuenta: confírmala antes de autorizar</span>}
+                      </>
+                    )}
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <tbody>
+                      {g.ocs.map(o => {
+                        const prob = d ? problemaMonto(o) : null
+                        return (
+                          <tr key={o.id} style={{ borderTop: '1px solid #1f1f1f', opacity: d ? 1 : 0.4 }}>
+                            <td style={{ padding: '7px 12px', color: '#ddd', width: 150 }}>{o.folio}</td>
+                            <td style={{ padding: '7px 6px', color: '#777' }}>concepto <span style={{ ...mono, color: '#ccc' }}>{folioSinGuiones(o.folio)}</span></td>
+                            <td style={{ padding: '7px 6px', color: '#777', textAlign: 'right', whiteSpace: 'nowrap' }}>debe {F(o.saldo)}</td>
+                            <td style={{ padding: '7px 12px', textAlign: 'right', width: 150 }}>
+                              <input value={montos[o.id] ?? ''} disabled={!d || !!descargado}
+                                onChange={e => setMontos(prev => ({ ...prev, [o.id]: e.target.value.replace(/[^0-9.]/g, '') }))}
+                                style={{ width: 120, textAlign: 'right', background: '#0e0e0e', border: `1px solid ${prob ? '#DC2626' : '#2a2a2a'}`, borderRadius: 6, color: '#fff', padding: '4px 8px', ...mono }} />
+                              {prob && <div style={{ color: '#f87171', fontSize: 10, marginTop: 2 }}>{prob}</div>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })}
+
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: '#aaa', margin: '6px 0 14px' }}>
+              <span>Terceros BBVA: <b style={{ color: '#fff' }}>{bbva.length}</b> pagos · <b style={{ color: '#fff' }}>{F(suma(bbva))}</b></span>
+              <span>SPEI: <b style={{ color: '#fff' }}>{spei.length}</b> pagos · <b style={{ color: '#fff' }}>{F(suma(spei))}</b></span>
+              <span>Total: <b style={{ color: '#10B981' }}>{F(suma(renglones))}</b></span>
+            </div>
+            {(sinCuenta.length > 0 || conProblemaMonto.length > 0) && (
+              <div style={{ fontSize: 11, color: '#D97706', marginBottom: 12 }}>
+                No van en el archivo: {[...sinCuenta.map(n => n + ' (sin cuenta)'), ...conProblemaMonto.map(o => o.folio + ' (monto)')].join(', ')}.
+              </div>
+            )}
+
+            {!descargado ? (
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <Btn onClick={onClose}>Cancelar</Btn>
+                <Btn variant="primary" onClick={descargar} disabled={renglones.length === 0}>
+                  <Download size={14} /> Descargar {bbva.length > 0 && spei.length > 0 ? '2 archivos TXT' : 'TXT'}
+                </Btn>
+              </div>
+            ) : (
+              <div style={{ background: '#0f2a20', border: '1px solid #10B98144', borderRadius: 10, padding: 14, fontSize: 12, color: '#d1fae5', lineHeight: 1.6 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>✓ Archivo{descargado.bbva > 0 && descargado.spei > 0 ? 's' : ''} descargado{descargado.bbva > 0 && descargado.spei > 0 ? 's' : ''}</div>
+                {descargado.bbva > 0 && <div>· PAGO_PROVEEDORES_BBVA ({descargado.bbva}): súbelo en Net Cash como archivo de pagos a terceros BBVA.</div>}
+                {descargado.spei > 0 && <div>· PAGO_PROVEEDORES_SPEI ({descargado.spei}): súbelo en Net Cash como archivo de SPEI (otros bancos).</div>}
+                <div style={{ marginTop: 8, color: '#a7f3d0' }}>Las órdenes NO se han marcado como pagadas. Cuando autorices en el banco, regístralas aquí:</div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
+                  <Btn onClick={descargar}>Volver a descargar</Btn>
+                  <Btn onClick={onClose}>Cerrar sin registrar</Btn>
+                  <Btn variant="primary" onClick={registrar} disabled={registrando}>
+                    {registrando ? 'Registrando…' : `Ya los autoricé · registrar ${renglones.length} pagos`}
+                  </Btn>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
