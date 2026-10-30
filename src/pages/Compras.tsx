@@ -1575,7 +1575,10 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
   const getQuotName = (o: PurchaseOrder) => (o as any).quotation?.name || null
 
   let lista = orders
-  if (filterStatus !== 'todas') lista = lista.filter(o => o.status === filterStatus)
+  // Las canceladas no se ven en "Todas" (Elias, 30-oct): solo estorban. Quien
+  // las necesite las encuentra con el chip "Cancelada".
+  if (filterStatus === 'todas') lista = lista.filter(o => o.status !== 'cancelada')
+  else lista = lista.filter(o => o.status === filterStatus)
   if (filterSpec !== 'todas') lista = lista.filter(o => o.specialty === filterSpec)
   if (filterPago !== 'todas') {
     // Las canceladas y las ya pagadas nunca son deuda pendiente.
