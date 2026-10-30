@@ -3827,3 +3827,10 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - Patrones de carga en el front: `catalog_products` completo se pide miles de veces (≈10k llamadas, ~200 ms c/u); `facturas` y `factura_conceptos` se paginan COMPLETAS (`select *`). Cachear el catálogo por sesión y pedir solo columnas o rangos.
 - `quotations` pesa ~10 KB por renglón por `notes`.
 - La instancia es chica (shared_buffers ~280 MB, 60 conexiones, CPU compartido): los tiempos varían mucho entre corridas. Subir el cómputo en Supabase es decisión de costo de Elias.
+
+## 🪟 Cortinas: el resumen del PDF ahora cuadra (2026-10-29)
+- **Problema:** el resumen del PDF (`CotEditorCortinas.tsx`, vista de propuesta) solo listaba Tela, Confección y Motorización. Una cotización de puras persianas salía con "Tela $0" y no mostraba ni el material de persianas ni los extras (envío/manejo). Sí estaban dentro del subtotal, así que a la vista no cuadraba. Ejemplo: Maria Attie, persianas $202,431.40 + envío $8,195.
+- **Fix:**
+  - El resumen lista cada concepto solo si es mayor que 0: Tela / Confección / Telas confeccionadas, Persianas, Motorización y Extras.
+  - "Persianas Manuales" ahora es "Piezas manuales" y excluye los renglones EXTRA, que nacen con `tipoCierre='MANUAL'`. El mismo filtro se aplicó en el resumen del editor.
+- Puede haber diferencias de centavos entre la suma de renglones y el resumen: el resumen aplica el margen al costo agregado y los renglones lo aplican uno por uno (ej. motores $106,662.40 contra $106,662.42). No se tocó, porque el total guardado de la cotización usa el agregado.
