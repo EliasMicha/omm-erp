@@ -3258,6 +3258,31 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
     setProcessing(false)
   }
 
+  /* --- Respaldo SIN IA para el Excel/PDF del portal nuevo ---
+     El archivo de BBVA ya trae fecha, descripcion, concepto, importe y tipo
+     separados: la IA solo agrega categoria, beneficiario y proyecto. Si la
+     API de Claude no responde (o se acabo el limite mensual, como el
+     31-oct-2026), se arma el preview directo del archivo:
+       · concepto = "descripcion / concepto", igual al formato de siempre
+       · categoria por las reglas de palabras clave (classifyConcepto)
+       · lo demas lo completan los triggers al insertar: folio → OC/cotizacion
+         → proyecto, categoria, tipo de gasto y beneficiario.
+     Se marca confianza 'baja' para que se distingan en la revision. */
+  const prepararSinIA = () => {
+    if (!bbvaFuente.length) { setStatus('Error: el respaldo sin IA solo funciona con el Excel o PDF del portal nuevo.'); return }
+    const extra = bbvaDudosos.filter((_, k) => dudososSi.has(k)).map(d => d.mov)
+    const lote = [...bbvaNuevos, ...extra].sort((a, b) => a.fecha.localeCompare(b.fecha))
+    if (lote.length === 0) { setStatus('No hay movimientos nuevos que importar.'); return }
+    const movs = lote.map(f => {
+      const concepto = [f.descripcion, f.concepto].map(x => (x || '').trim()).filter(Boolean).join(' / ')
+      const cat = granularToNaturaleza(refineNominaCategory(classifyConcepto(concepto, f.tipo), false))
+      return { fecha: f.fecha, concepto, monto: f.monto, tipo: f.tipo, categoria: cat, beneficiario: '', confianza_autodetect: 'baja' }
+    })
+    setTxtPreview(movs)
+    setTxtSummary({ totals_check: null, warnings: ['Importado SIN IA: la categoria sale de las reglas por palabra clave y los folios de OC se ligan solos al guardar. Revisa beneficiario y proyecto de los que no traen folio.'], periodo: null })
+    setStatus('Preview listo SIN IA: ' + movs.length + ' movimientos tomados directo del archivo de BBVA')
+  }
+
   /* --- Conciliacion v2: confirmar importacion del TXT --- */
   const handleTxtConfirm = async () => {
     if (!showTxtModal || !txtPreview) return
@@ -4786,6 +4811,11 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   <div style={{ fontSize: 10, color: '#666' }}>{txtPayload.length} caracteres · ~{txtPayload.split('\n').filter(l => l.trim()).length - 1} filas</div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <Btn size="sm" variant="default" onClick={() => { setShowTxtModal(null); setTxtPayload(''); }} disabled={processing}>Cancelar</Btn>
+                    {bbvaFuente.length > 0 && (
+                      <Btn size="sm" variant="default" onClick={prepararSinIA} disabled={processing || !txtPayload.trim()}>
+                        Importar sin IA
+                      </Btn>
+                    )}
                     <Btn size="sm" variant="primary" onClick={handleTxtProcess} disabled={processing || !txtPayload.trim()}>
                       {processing ? '⏳ Procesando...' : 'Procesar con AI'}
                     </Btn>

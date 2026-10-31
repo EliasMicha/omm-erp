@@ -3902,3 +3902,12 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   2. `update whatsapp_ajustes set valor='true' where clave='grupos_listos'`.
   - **No prender antes:** con el webhook viejo, lo que alguien escriba en un grupo le llega al asistente como mensaje privado (y a un instalador se le puede tomar como reporte).
   - Opcional: en Meta → app → WhatsApp → Configuración → webhook, suscribir `group_lifecycle_update`, `group_participants_update`, `group_status_update` (sin eso igual funciona: `info` relee los participantes al abrir el panel).
+
+## 🏦 Conciliación: "Importar sin IA" para el Excel/PDF de BBVA (2026-10-31)
+- La API de Claude llegó al **límite mensual de gasto** configurado en la cuenta de Anthropic ("You have reached your specified API usage limits", hasta 2026-11-01). Eso tumba TODO lo que usa IA: procesar estados de cuenta, OC desde PDF, cotizar con IA, reportes y agente de WhatsApp. El límite se sube en la consola de Anthropic (Settings → Limits).
+- **Respaldo:** `prepararSinIA()` en `Contabilidad.tsx`, con botón "Importar sin IA". Solo aparece cuando el lote vino del Excel/PDF del portal nuevo (`bbvaFuente`). Arma el preview directo del archivo:
+  - concepto = `descripcion / concepto`;
+  - categoría con `classifyConcepto` + `refineNominaCategory` + `granularToNaturaleza`;
+  - `confianza_autodetect = 'baja'`.
+  - Al insertar, los triggers ligan los folios a su OC o cotización y llenan proyecto, categoría, tipo de gasto y beneficiario. Mismo dedup e inserción que el camino con IA.
+- **Incidente del 30-oct, 20:45–23:00:** el Disk IO Budget se agotó en la instancia **NANO** (0.5 GB). La base dejó de contestar: checkpoints de 4 buffers tardaban 30–108 s y había timeouts de cron. Elias tenía la opción "Free Upgrade" a MICRO al mismo precio. Si vuelve el aviso de Disk IO, el siguiente nivel es SMALL.
