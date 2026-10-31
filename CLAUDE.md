@@ -3862,3 +3862,11 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - **Dato.** Se agregó `custom_caseta_lutron` a `systems_no_suma` de "Depto Landmark GDL (B) (C)". Ahora cuadra: sistemas US$52,147.03 + viáticos US$7,692.64 = US$59,839.67.
 - **Barrido:** ninguna otra ESP vigente quedó con un "no suma" perdido. Las diferencias restantes son viáticos (Rancho Hirschfeld, Mesa de Gallos, Ritz Cancún). GV303 tiene US$189.96 sin explicar, menor, y cae al reparto proporcional.
 - `apagar` (sacar de `notes.systems`) solo oculta el sistema en pantalla. Lo que excluye del total es `systems_no_suma`.
+
+## 👥 Nómina: las bajas ya no desaparecen de los periodos de su mes (2026-10-30)
+- **Problema:** `TabPeriodos.tsx` cargaba solo `employees.activo = true`. Al dar de baja a alguien antes de cerrar el mes, sus `payroll_items` seguían en la base, pero `_emp` quedaba vacío. El renglón perdía nombre y cuenta y salía de los layouts BBVA/SPEI (`filter(r => !!r.emp)`) y del PDF de efectivo. Elias dio de baja el 30-oct a gente que se va a partir de noviembre (`fecha_baja` 2026-10-31).
+- **Fix:**
+  - Lista base: `activo OR fecha_baja >= inicio del periodo`, del mismo `tipo_alta`. Se usa también al CREAR un periodo, así que octubre los incluye y noviembre ya no.
+  - Además, `empsDelPeriodo` carga a todo empleado con renglón en el periodo abierto, activo o no. `_emp` lo busca ahí si no está en la lista base. El mapa del comprobante de transferencia también.
+- No se borró ni modificó ningún renglón de nómina. Los de Jesús Ulises Romero, Raymundo Montes de Oca, Mariana Guzmán y Alejandra Álvarez estaban intactos en todos los periodos de octubre.
+- Ojo: la baja desde el expediente pone `fecha_baja = hoy`. Si alguien se va a fin de mes, hay que poner la fecha real de salida.

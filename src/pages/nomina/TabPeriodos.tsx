@@ -126,6 +126,8 @@ export default function TabPeriodos() {
   const [viewMode, setViewMode] = useState<ViewMode>('semanal')
   const [currentDate, setCurrentDate] = useState(new Date())
   const [employees, setEmployees] = useState<Employee[]>([])
+  // Empleados que tienen renglón en el periodo abierto, estén activos o no.
+  const [empsDelPeriodo, setEmpsDelPeriodo] = useState<Employee[]>([])
   const [period, setPeriod] = useState<PayrollPeriod | null>(null)
   const [items, setItems] = useState<PayrollItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -160,18 +162,23 @@ export default function TabPeriodos() {
   const goToToday = () => setCurrentDate(new Date())
 
   // Load employees
+  // Entran los activos Y los que se dieron de baja con fecha igual o posterior
+  // al inicio del periodo: quien se va el 31 de octubre sigue cobrando todo
+  // octubre. Antes solo se cargaban los activos, y dar de baja a alguien antes
+  // de cerrar el mes lo sacaba de las nóminas de ese mes (Elias, 30-oct-2026).
+  const inicioPeriodo = fmtDate(range.start)
   useEffect(() => {
     (async () => {
       const freq = viewMode === 'semanal' ? 'SEMANAL' : 'QUINCENAL'
       const { data } = await supabase
         .from('employees')
         .select('id,nombre,tipo_alta,sueldo_neto_semanal,sueldo_neto_quincenal,puesto,area,rfc,banco,cuenta,clabe')
-        .eq('activo', true)
+        .or(`activo.eq.true,fecha_baja.gte.${inicioPeriodo}`)
         .eq('tipo_alta', freq)
         .order('nombre')
       setEmployees((data as Employee[]) || [])
     })()
-  }, [viewMode])
+  }, [viewMode, inicioPeriodo])
 
   // Load period + items for current range
   const loadPeriod = useCallback(async () => {
@@ -197,9 +204,24 @@ export default function TabPeriodos() {
         .from('payroll_items')
         .select('*')
         .eq('period_id', existing.id)
-      setItems((itemData as PayrollItem[]) || [])
+      const its = (itemData as PayrollItem[]) || []
+      setItems(its)
+      // Un renglón ya guardado es de alguien que cobró ese periodo, aunque hoy
+      // esté dado de baja: se carga su nombre y su cuenta para que no se
+      // pierda de la tabla, de los totales ni de los layouts del banco.
+      const ids = Array.from(new Set(its.map(i => i.employee_id).filter(Boolean)))
+      if (ids.length > 0) {
+        const { data: ed } = await supabase
+          .from('employees')
+          .select('id,nombre,tipo_alta,sueldo_neto_semanal,sueldo_neto_quincenal,puesto,area,rfc,banco,cuenta,clabe')
+          .in('id', ids)
+        setEmpsDelPeriodo((ed as Employee[]) || [])
+      } else {
+        setEmpsDelPeriodo([])
+      }
     } else {
       setItems([])
+      setEmpsDelPeriodo([])
     }
 
     setLoading(false)
@@ -734,7 +756,7 @@ export default function TabPeriodos() {
       const { data: itemData, error: itemErr } = await supabase.from('payroll_items').select('*').eq('period_id', period.id)
       if (itemErr) throw itemErr
       const its = (itemData as PayrollItem[]) || []
-      const empById = new Map(employees.map(e => [e.id, e]))
+      const empById = new Map([...empsDelPeriodo, ...employees].map(e => [e.id, e]))
       const candidatos = its
         .filter(it => Number(it.neto_a_pagar_cfdi) > 0 && empById.has(it.employee_id))
         .map(it => {
@@ -986,10 +1008,10 @@ export default function TabPeriodos() {
         ...m,
         _efectivoBase: efectivoBase,
         _totalEfectivo: totalEfectivo,
-        _emp: employees.find(e => e.id === m.employee_id),
+        _emp: employees.find(e => e.id === m.employee_id) || empsDelPeriodo.find(e => e.id === m.employee_id),
       }
     })
-  }, [items, dirty, employees])
+  }, [items, dirty, employees, empsDelPeriodo])
 
   // KPIs
   const kpis = useMemo(() => {
