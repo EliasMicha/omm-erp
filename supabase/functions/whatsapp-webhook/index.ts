@@ -13,6 +13,7 @@ import { logWa, applyStatuses, waIdFrom } from './log.ts';
 import { runAgent } from './agent.ts';
 import { isDelegationCoach } from './delegation.ts';
 import { sesionDe } from './sesion.ts';
+import { guardarMensajeGrupo, eventosGrupo, estadosGrupo } from './grupos.ts';
 import type { ClaudeMessage, ContentBlock } from './types.ts';
 
 const supabase = createClient(
@@ -76,12 +77,16 @@ async function handleEvent(payload: any) {
       const messages = value?.messages ?? [];
       for (const msg of messages) {
         try {
+          // Mensaje de un grupo: se guarda y ya. El asistente no participa en grupos.
+          if (msg.group_id) { await guardarMensajeGrupo(supabase, msg, value); continue; }
           await processMessage(msg, value);
         } catch (e) {
           console.error('processMessage error:', e);
         }
       }
       if (value?.statuses?.length) await applyStatuses(supabase, value.statuses);
+      if (value?.statuses?.length) await estadosGrupo(supabase, value.statuses);
+      if (value?.groups?.length) await eventosGrupo(supabase, value.groups);
     }
   }
 }

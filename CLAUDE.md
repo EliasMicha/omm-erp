@@ -3870,3 +3870,35 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - Además, `empsDelPeriodo` carga a todo empleado con renglón en el periodo abierto, activo o no. `_emp` lo busca ahí si no está en la lista base. El mapa del comprobante de transferencia también.
 - No se borró ni modificó ningún renglón de nómina. Los de Jesús Ulises Romero, Raymundo Montes de Oca, Mariana Guzmán y Alejandra Álvarez estaban intactos en todos los periodos de octubre.
 - Ojo: la baja desde el expediente pone `fecha_baja = hoy`. Si alguien se va a fin de mes, hay que poner la fecha real de salida.
+## 👥 Grupos de WhatsApp (2026-10-30)
+- **Pedido de Elias:** "Ya tengo palomita azul, podemos ver de que pueda hacer grupos". Decidió: grupos **de obra con cliente y también internos**, y que **el bot no participe** (escribimos nosotros desde /wa).
+- **Límites de Meta (Groups API, cuenta oficial):**
+  - máximo 8 personas además de OMM;
+  - sólo se entra con la liga de invitación;
+  - la ventana de 24 h es del grupo entero (se abre cuando cualquiera escribe);
+  - sólo texto, archivos y plantillas;
+  - se cobra por persona que recibe.
+  - Probado con `diag`: la API responde en v21–v25 con nuestra cuenta (0 grupos).
+- **BD** (`20261030_whatsapp_grupos.sql`, aplicada):
+  - `whatsapp_grupos` (group_id, nombre, tipo obra|interno, invite_link, participantes jsonb, estado);
+  - `whatsapp_grupo_mensajes`. Va **aparte de `whatsapp_messages` a propósito**: muchas reglas leen esa tabla para saber si la ventana de 24 h de una PERSONA está abierta, y escribir en un grupo no la abre.
+  - RLS: leen Administración/DG, escribe sólo service_role.
+  - `whatsapp_ajustes.grupos_listos` (false) apaga "crear".
+- **Edge Function nueva `whatsapp-grupos`** (v1, verify_jwt=false, revisa JWT DG/Admin o `x-cron-key` sólo para `diag`). Acciones: `crear`, `info`, `invitar`, `enviar`, `quitar`, `nueva_liga`, `solicitud`, `borrar`, `diag`.
+  - Crear es asíncrono: si la respuesta no trae id, busca el grupo nuevo en la lista.
+  - "Invitar" manda la liga por el chat individual: texto si su ventana está abierta; si no, `omm_aviso_equipo` u `omm_mensaje_cliente`.
+  - Al grupo con la ventana cerrada sale `omm_aviso_equipo` ("Hola equipo…") o `omm_mensaje_cliente` ("Hola a todos…").
+  - Llamadas Graph en `_shared/waGrupos.ts` (`GRUPOS_VERSION` v24.0).
+  - Es chica (~25 KB) para poder publicarse sin la Mac.
+- **Webhook** (`whatsapp-webhook/grupos.ts`):
+  - un mensaje con `group_id` se guarda en `whatsapp_grupo_mensajes` (con su archivo en `agent-documents/grupos/<gid>/…`) y **ahí termina**: no pasa por agente, reportes ni clientes;
+  - atiende `value.groups` (create/delete/participantes/suspensión) y los estados de lo que mandamos.
+- **Front:**
+  - `Conversaciones.tsx`: los grupos son chats con key `g:<group_id>`; los de obra caen en Clientes y los internos en Coordinación. El ⋮ abre `PanelGrupo` (liga, invitar, quitar, solicitudes, borrar). "Nuevo chat" → "Nuevo grupo".
+  - Componentes en `src/components/whatsapp/Grupos.tsx`.
+  - `useMedios` firma directo las rutas `grupos/`.
+- ⏳ **Para prenderlo:**
+  1. desplegar `whatsapp-webhook` con la Mac (el bundle mide ~484 KB y no cabe inline);
+  2. `update whatsapp_ajustes set valor='true' where clave='grupos_listos'`.
+  - **No prender antes:** con el webhook viejo, lo que alguien escriba en un grupo le llega al asistente como mensaje privado (y a un instalador se le puede tomar como reporte).
+  - Opcional: en Meta → app → WhatsApp → Configuración → webhook, suscribir `group_lifecycle_update`, `group_participants_update`, `group_status_update` (sin eso igual funciona: `info` relee los participantes al abrir el panel).

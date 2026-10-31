@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, Check, CheckCheck, Paperclip, X, ArrowLeft, MoreVertical, Home, Briefcase, HardHat, MessageSquarePlus } from 'lucide-react'
+import { Search, Send, Bot, User, Wrench, HelpCircle, FileText, TriangleAlert, Check, CheckCheck, Paperclip, X, ArrowLeft, MoreVertical, Home, Briefcase, HardHat, MessageSquarePlus, Users } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { useAuth } from '../../contexts/AuthContext'
 import { useMedios, VistaMedio, tieneArchivo, esMarcadorDeTipo } from './Medio'
+import { NuevoGrupo, PanelGrupo, type GrupoWa } from './Grupos'
+import { llamarGrupos } from '../../lib/whatsappSend'
 
 // Vista tipo WhatsApp sobre la bitácora `whatsapp_messages`.
 // Agrupa por los últimos 10 dígitos del teléfono (Meta manda 521…, nosotros
@@ -29,6 +31,7 @@ interface Msg {
   template_name: string | null; sender_type: string | null; status: string | null; error: string | null
   created_at: string; sent_by: string | null; media_path: string | null
   ticket: { ticket_number: number } | null
+  from_nombre?: string | null   // grupos: quién escribió (nombre de su perfil)
 }
 type Fuente = 'empleado' | 'asistente' | 'mantenimiento' | 'contacto' | 'ninguna'
 interface Quien { nombre: string; tipo: 'equipo' | 'cliente' | 'desconocido'; detalle?: string; fuente: Fuente; rol?: string }
@@ -36,6 +39,7 @@ type Grupo = 'clientes' | 'coordinacion' | 'servicios' | 'general'
 interface Chat {
   key: string; telefono: string; quien: Quien; msgs: Msg[]; ultimo: Msg | null; ultimoEntrante: Msg | null
   grupo: Grupo; grupoAuto: Grupo; sinLeer: number
+  grupoWa?: GrupoWa   // un grupo de WhatsApp (key 'g:<group_id>'), no una persona
 }
 // Lo que va pegado al mensaje: un archivo, una cotización (su último PDF del ERP)
 // o el estado de cuenta de un lead. Lo arma y lo manda whatsapp-send (send_document).
@@ -135,6 +139,11 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   const sel = params.get('c') || ''
 
   const [msgs, setMsgs] = useState([] as Msg[])
+  // Grupos de WhatsApp: su propia tabla (no abren la ventana de 24 h de cada persona).
+  const [gruposWa, setGruposWa] = useState([] as GrupoWa[])
+  const [gMsgs, setGMsgs] = useState([] as (Msg & { group_id: string })[])
+  const [nuevoGrupo, setNuevoGrupo] = useState(false)
+  const [verPanelGrupo, setVerPanelGrupo] = useState(false)
   const [nombres, setNombres] = useState({} as Record<string, Quien>)
   const [manual, setManual] = useState({} as Record<string, Grupo>)
   const [visto, setVisto] = useState(leerVisto)
@@ -164,6 +173,12 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
       .order('created_at', { ascending: false }).limit(1500)
     if (e) setError('No pude leer los mensajes: ' + e.message)
     else setMsgs(((data || []) as unknown as Msg[]).reverse())
+    const [{ data: gs }, { data: gm }] = await Promise.all([
+      supabase.from('whatsapp_grupos').select('id, group_id, nombre, tipo, invite_link, participantes, estado, error, created_at').neq('estado', 'borrado').not('group_id', 'is', null),
+      supabase.from('whatsapp_grupo_mensajes').select('id, group_id, direction, from_phone, from_nombre, kind, body, template_name, status, error, created_at, sent_by, media_path').order('created_at', { ascending: false }).limit(1500),
+    ])
+    setGruposWa((gs || []) as GrupoWa[])
+    setGMsgs(((gm || []) as any[]).reverse().map(m => ({ ...m, phone_e164: m.from_phone || '', sender_type: null, ticket: null })))
     setCargando(false)
   }
 
@@ -219,9 +234,24 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         sinLeer: k === sel ? 0 : entrantes.filter(m => m.created_at > desde).length,
       }
     })
-    lista.sort((a, b) => b.ultimo!.created_at.localeCompare(a.ultimo!.created_at))
+    for (const gw of gruposWa) {
+      const k = 'g:' + gw.group_id
+      const ms = gMsgs.filter(m => m.group_id === gw.group_id)
+      const entrantes = ms.filter(m => m.direction === 'in')
+      const auto: Grupo = gw.tipo === 'interno' ? 'coordinacion' : 'clientes'
+      const desde = visto.chats[k] || visto.base
+      const n = Array.isArray(gw.participantes) ? gw.participantes.length : 0
+      lista.push({
+        key: k, telefono: `Grupo · ${n} persona${n === 1 ? '' : 's'}`, grupoWa: gw,
+        quien: { nombre: gw.nombre, tipo: gw.tipo === 'interno' ? 'equipo' : 'cliente', detalle: gw.tipo === 'interno' ? 'Grupo interno' : 'Grupo de obra', fuente: 'ninguna' },
+        msgs: ms, ultimo: ms[ms.length - 1] || null, ultimoEntrante: entrantes[entrantes.length - 1] || null,
+        grupoAuto: auto, grupo: auto, sinLeer: k === sel ? 0 : entrantes.filter(m => m.created_at > desde).length,
+      })
+    }
+    const orden = (c: Chat) => c.ultimo?.created_at || c.grupoWa?.created_at || ''
+    lista.sort((a, b) => orden(b).localeCompare(orden(a)))
     return lista
-  }, [msgs, nombres, manual, visto, sel])
+  }, [msgs, gMsgs, gruposWa, nombres, manual, visto, sel])
 
   const chats = useMemo(() => {
     const q = buscar.trim().toLowerCase()
@@ -258,7 +288,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   }, [todos])
 
   function abrir(key: string) {
-    setMenuChat(false); setMenuAdj(false); setBuscador(null); setAdjunto(null); setTexto(''); setError('')
+    setMenuChat(false); setMenuAdj(false); setBuscador(null); setAdjunto(null); setTexto(''); setError(''); setVerPanelGrupo(false)
     const p = new URLSearchParams(params); p.set('c', key)
     // En el celular cada chat abierto es un paso del historial: el "atrás" del
     // teléfono regresa a la lista. En la computadora se reemplaza.
@@ -328,14 +358,40 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   function comoSalePlantilla(t: string) {
     if (!chat) return t
     const plano = t.replace(/[\r\n\t]+/g, ' · ').replace(/ {2,}/g, ' ').trim()
+    if (chat.grupoWa) return chat.grupoWa.tipo === 'interno'
+      ? `Hola equipo, tienes un aviso del ERP de OMM: de parte de ${miNombre}: ${plano}. Responde a este mensaje para atenderlo con el asistente.`
+      : `Hola a todos, ${miNombre} de OMM Technologies te escribe:\n\n${plano}\n\nPuedes responder a este mensaje para continuar la conversación.`
     const primer = (chat.quien.tipo !== 'desconocido' && chat.quien.nombre.split(/\s+/)[0]) || (chat.quien.tipo === 'equipo' ? 'equipo' : 'buen día')
     return chat.quien.tipo === 'equipo'
       ? `Hola ${primer}, tienes un aviso del ERP de OMM: de parte de ${miNombre}: ${plano}. Responde a este mensaje para atenderlo con el asistente.`
       : `Hola ${primer}, ${miNombre} de OMM Technologies te escribe:\n\n${plano}\n\nPuedes responder a este mensaje para continuar la conversación.`
   }
 
+  async function mandarGrupo() {
+    if (!chat?.grupoWa) return
+    const gid = chat.grupoWa.group_id
+    if (adjunto) {
+      if (!ventanaAbierta) { setError('Nadie ha escrito en el grupo en las últimas 24 h: WhatsApp no deja mandar archivos hasta que alguien escriba.'); return }
+      if (!confirm(`¿Mandar ${adjunto.etiqueta} al grupo ${chat.quien.nombre}?`)) return
+    } else {
+      if (!texto.trim()) return
+      if (!ventanaAbierta && !confirm(`Nadie ha escrito en el grupo en las últimas 24 h. Le va a llegar así:\n\n${comoSalePlantilla(texto.trim())}\n\n¿Lo mando?`)) return
+    }
+    setEnviando(true); setError('')
+    try {
+      const r = await llamarGrupos(adjunto
+        ? { action: 'enviar', group_id: gid, archivo: adjunto.documento, caption: texto.trim() || undefined }
+        : { action: 'enviar', group_id: gid, text: texto.trim() })
+      if (r?.ok === false) setError('No salió: ' + r.error)
+      else { setTexto(''); setAdjunto(null) }
+      await cargarMsgs()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setEnviando(false) }
+  }
+
   async function mandar() {
     if (!chat) return
+    if (chat.grupoWa) return mandarGrupo()
     if (adjunto) {
       if (!puedeAdjuntar) return
       if (!confirm(`¿Mandar ${adjunto.etiqueta} a ${chat.quien.nombre}?`)) return
@@ -397,6 +453,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
   }, [buscador, qDoc])
 
   const Icono = ({ c, size }: { c: Chat; size: number }) => {
+    if (c.grupoWa) return <Users size={size - 1} />
     if (c.grupo === 'servicios') return <Wrench size={size - 1} />
     if (c.grupo === 'clientes') return <Briefcase size={size - 1} />
     if (c.grupo === 'coordinacion') return c.quien.tipo === 'equipo' ? <User size={size} /> : <HardHat size={size - 1} />
@@ -424,6 +481,14 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         </div>
       </div>
       <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div onClick={() => { setNuevo(false); setNuevoGrupo(true) }} style={{ display: 'flex', gap: 12, padding: '10px 14px', cursor: 'pointer', alignItems: 'center' }}
+          onMouseEnter={e => { e.currentTarget.style.background = C.hover }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+          <div style={{ width: 44, height: 44, borderRadius: '50%', background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Users size={20} /></div>
+          <div>
+            <div style={{ color: C.texto, fontSize: 15.5 }}>Nuevo grupo</div>
+            <div style={{ color: C.tenue, fontSize: 12.5 }}>De obra con cliente o interno · hasta 8 personas</div>
+          </div>
+        </div>
         {numeroTecleado.length === 10 && (
           <div onClick={() => empezarChat(numeroTecleado)} style={{ display: 'flex', gap: 12, padding: '10px 14px', cursor: 'pointer', alignItems: 'center' }}>
             <div style={{ width: 44, height: 44, borderRadius: '50%', background: C.verde, color: '#0b141a', display: 'grid', placeItems: 'center', flexShrink: 0 }}><MessageSquarePlus size={20} /></div>
@@ -498,8 +563,9 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
         {cargando && <div style={{ color: C.tenue, padding: 16, fontSize: 13 }}>Cargando…</div>}
         {!cargando && chats.length === 0 && <div style={{ color: C.tenue, padding: 16, fontSize: 13 }}>{buscar ? 'Nada coincide con la búsqueda.' : 'Sin conversaciones en este grupo.'}</div>}
         {chats.map(c => {
-          const u = c.ultimo!
-          const prefijo = u.direction === 'out' ? (u.template_name ? 'Plantilla: ' : u.sent_by ? 'Tú: ' : 'Bot: ') : ''
+          const u = c.ultimo || { id: '', direction: 'in', phone_e164: '', kind: null, body: 'Sin mensajes todavía', template_name: null, sender_type: null, status: null, error: null, created_at: c.grupoWa?.created_at || '', sent_by: null, media_path: null, ticket: null } as Msg
+          const prefijo = u.direction === 'out' ? (u.template_name ? 'Plantilla: ' : u.sent_by ? 'Tú: ' : 'Bot: ')
+            : c.grupoWa && u.id ? `${(u.from_nombre || nombres[ult10(u.phone_e164)]?.nombre || telBonito(ult10(u.phone_e164))).split(/\s+/)[0]}: ` : ''
           return (
             <div key={c.key} onClick={() => abrir(c.key)}
               style={{ display: 'flex', gap: 12, padding: '10px 14px', cursor: 'pointer', background: !unPanel && sel === c.key ? C.activo : 'transparent' }}>
@@ -509,7 +575,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
               <div style={{ flex: 1, minWidth: 0, borderBottom: `1px solid ${C.borde}`, paddingBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
                   <span style={{ color: C.texto, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: c.sinLeer ? 600 : 400 }}>{c.quien.nombre}</span>
-                  <span style={{ color: c.sinLeer ? C.verde : C.tenue, fontSize: 12, flexShrink: 0 }}>{fechaLista(u.created_at)}</span>
+                  <span style={{ color: c.sinLeer ? C.verde : C.tenue, fontSize: 12, flexShrink: 0 }}>{u.created_at ? fechaLista(u.created_at) : ''}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3 }}>
                   <div style={{ flex: 1, minWidth: 0, color: C.tenue, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -529,7 +595,10 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
 
   // ---- Panel de la conversación ----
   const conversacion = (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, position: 'relative' }}>
+      {chat?.grupoWa && verPanelGrupo && (
+        <PanelGrupo grupo={chat.grupoWa} nombres={nombres} tamTexto={tamTexto} onCerrar={() => setVerPanelGrupo(false)} onCambio={() => { cargarMsgs() }} />
+      )}
       {!chat ? (
         <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: C.tenue, fontSize: 14 }}>Elige una conversación</div>
       ) : (<>
@@ -551,7 +620,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
                 : chat.msgs.length ? 'Ventana de 24 h cerrada: sale como plantilla' : 'Chat nuevo: el primer mensaje sale como plantilla'}
             </div>
           )}
-          <button onClick={() => setMenuChat(v => !v)} aria-label="Opciones" style={{ background: 'none', border: 0, color: C.tenue, padding: 6, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><MoreVertical size={20} /></button>
+          <button onClick={() => { if (chat.grupoWa) setVerPanelGrupo(true); else setMenuChat(v => !v) }} aria-label="Opciones" style={{ background: 'none', border: 0, color: C.tenue, padding: 6, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><MoreVertical size={20} /></button>
           {menuChat && (
             <div style={{ position: 'absolute', top: '100%', right: 8, background: C.panel, border: `1px solid ${C.borde}`, borderRadius: 10, padding: 6, zIndex: 20, minWidth: 250, boxShadow: '0 6px 20px rgba(0,0,0,.5)' }}>
               <div style={{ color: C.tenue, fontSize: 12, padding: '6px 10px 4px' }}>{chat.telefono}{chat.quien.detalle ? ` · ${chat.quien.detalle}` : ''}</div>
@@ -578,7 +647,9 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
           {chat.msgs.map((m, i) => {
             const nuevoDia = i === 0 || new Date(chat.msgs[i - 1].created_at).toDateString() !== new Date(m.created_at).toDateString()
             const sale = m.direction === 'out'
-            const autor = quienEscribio(m)
+            const autor = chat.grupoWa && m.direction === 'in'
+              ? (m.from_nombre || nombres[ult10(m.phone_e164)]?.nombre || telBonito(ult10(m.phone_e164)))
+              : quienEscribio(m)
             return (
               <div key={m.id}>
                 {nuevoDia && (
@@ -641,7 +712,12 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
             <button onClick={() => setAdjunto(null)} style={{ background: 'none', border: 0, color: C.tenue, cursor: 'pointer' }}><X size={15} /></button>
           </div>
         )}
-        {!ventanaAbierta && !adjunto && (
+        {!ventanaAbierta && !adjunto && chat.grupoWa && (
+          <div style={{ background: C.panel, color: C.tenue, fontSize: 12.5, padding: '7px 14px', textAlign: 'center', flexShrink: 0 }}>
+            Nadie ha escrito en el grupo en las últimas 24 h: tu mensaje sale dentro de una plantilla de WhatsApp («Hola {chat.grupoWa.tipo === 'interno' ? 'equipo, tienes un aviso del ERP de OMM' : `a todos, ${miNombre} de OMM Technologies te escribe`}: …»). En cuanto alguien escriba, ya escribes libre y puedes mandar archivos.
+          </div>
+        )}
+        {!ventanaAbierta && !adjunto && !chat.grupoWa && (
           <div style={{ background: C.panel, color: C.tenue, fontSize: 12.5, padding: '7px 14px', textAlign: 'center', flexShrink: 0 }}>
             {chat.msgs.length ? 'Pasaron más de 24 h desde su último mensaje' : 'No hay conversación todavía'}: tu mensaje le llega dentro de una plantilla de WhatsApp («Hola…, {chat.quien.tipo === 'equipo' ? 'tienes un aviso del ERP de OMM' : `${miNombre} de OMM Technologies te escribe`}: …»). Cuando conteste, ya escribes libre.{' Si le mandas un archivo, se le entrega en cuanto conteste.'}
           </div>
@@ -665,7 +741,7 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
                 { k: 'archivo', t: movil ? 'Archivo o foto' : 'Archivo de tu computadora' },
                 { k: 'cotizacion', t: 'Cotización (PDF del ERP)' },
                 { k: 'estado_cuenta', t: 'Estado de cuenta de un lead' },
-              ].map(o => (
+              ].filter(o => !chat.grupoWa || o.k === 'archivo').map(o => (
                 <div key={o.k} onClick={() => { setMenuAdj(false); if (o.k === 'archivo') archivoRef.current?.click(); else { setBuscador(o.k as any); setQDoc('') } }}
                   style={{ padding: '10px 10px', borderRadius: 6, cursor: 'pointer', color: C.texto, fontSize: 14 }}
                   onMouseEnter={e => { e.currentTarget.style.background = C.hover }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>{o.t}</div>
@@ -687,7 +763,13 @@ export default function Conversaciones({ enviar, modo = 'erp' }: { enviar: (payl
 
   return (
     <div style={contenedor}>
-      {nuevo ? (unPanel ? panelNuevo : <>{panelNuevo}{conversacion}</>) : <>{verLista && lista}{verChat && conversacion}</>}
+      {nuevoGrupo ? (
+        <div style={{ width: unPanel ? '100%' : 360, minWidth: unPanel ? 0 : 280, borderRight: unPanel ? 'none' : `1px solid ${C.borde}`, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <NuevoGrupo nombres={nombres} app={app} tamTexto={tamTexto} onCerrar={() => setNuevoGrupo(false)}
+            onCreado={gid => { setNuevoGrupo(false); cargarMsgs().then(() => { if (gid) abrir('g:' + gid) }) }} />
+        </div>
+      ) : null}
+      {nuevoGrupo ? (unPanel ? null : conversacion) : nuevo ? (unPanel ? panelNuevo : <>{panelNuevo}{conversacion}</>) : <>{verLista && lista}{verChat && conversacion}</>}
     </div>
   )
 }

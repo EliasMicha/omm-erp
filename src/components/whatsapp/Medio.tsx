@@ -30,12 +30,16 @@ export function useMedios(msgs: MsgMedio[]): Record<string, Medio | null> {
     let vivo = true
     ;(async () => {
       const ubicados: { id: string; bucket: string; path: string; mime: string }[] = []
-      const { data, error } = await supabase.rpc('wa_media', { p_ids: faltan.map(m => m.id) })
+      // Los de grupos ya traen su ruta (whatsapp_grupo_mensajes.media_path).
+      const deGrupo = (m: MsgMedio) => !!m.media_path && m.media_path.startsWith('grupos/')
+      for (const m of faltan) if (deGrupo(m)) ubicados.push({ id: m.id, bucket: 'agent-documents', path: m.media_path!, mime: '' })
+      const porBuscar = faltan.filter(m => !deGrupo(m))
+      const { data, error } = porBuscar.length ? await supabase.rpc('wa_media', { p_ids: porBuscar.map(m => m.id) }) : { data: [], error: null }
       if (!error) {
         for (const r of (data || []) as any[]) ubicados.push({ id: r.id, bucket: r.bucket, path: r.path, mime: r.mime || '' })
       } else {
         // Sin la RPC (aún no aplicada) al menos se intenta con media_path en agent-documents.
-        for (const m of faltan) if (m.media_path) ubicados.push({ id: m.id, bucket: 'agent-documents', path: m.media_path, mime: '' })
+        for (const m of porBuscar) if (m.media_path) ubicados.push({ id: m.id, bucket: 'agent-documents', path: m.media_path, mime: '' })
       }
       const res: Record<string, Medio | null> = {}
       // Uno recién llegado puede no estar en Storage todavía (el webhook lo sube
