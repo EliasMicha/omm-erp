@@ -18,7 +18,7 @@ import { Tarjeta, Indicador, Rejilla, Nota, thS, tdS } from '../components/finan
 import { TabCartera, TabCxp, TabAreas, TabDatos } from '../components/finanzas/FinanzasDetalle'
 import { TabCiclo } from '../components/finanzas/CicloCobranza'
 
-type Periodo = 'mes' | '3m' | '6m' | '12m' | 'anio' | 'anio_ant'
+type Periodo = 'mes' | '3m' | '6m' | '12m' | 'anio' | 'anio_ant' | 'mes_sel'
 type Pestana = 'resumen' | 'flujo' | 'cartera' | 'ciclo' | 'cxp' | 'areas' | 'datos'
 
 const PERIODOS: { id: Periodo; label: string }[] = [
@@ -63,24 +63,45 @@ function rangoDe(p: Periodo): { desde: string; hasta: string } {
   return { desde: (y - 1) + '-01', hasta: (y - 1) + '-12' }
 }
 
-function deltaTxt(actual: number, previo: number, masEsMejor: boolean): { texto: string; bueno: boolean } | null {
+const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+function nombreMes(ym: string): string {
+  return MESES_CORTO[Number(ym.slice(5, 7)) - 1] + ' ' + ym.slice(0, 4)
+}
+// Primer mes que se puede elegir en "mes con mes": desde ene-2025 hay banco completo
+// (nómina, gastos, impuestos); 2024 solo trae ventas, cobranza y proveedores.
+const PRIMER_MES = '2025-01'
+
+function deltaTxt(actual: number, previo: number, masEsMejor: boolean, unMes?: boolean): { texto: string; bueno: boolean } | null {
   if (!previo || Math.abs(previo) < 1) return null
   const d = (actual - previo) / Math.abs(previo)
   if (!isFinite(d)) return null
   const flecha = d >= 0 ? '▲' : '▼'
-  return { texto: `${flecha} ${Math.abs(d * 100).toFixed(0)}% vs periodo anterior`, bueno: masEsMejor ? d >= 0 : d <= 0 }
+  return { texto: `${flecha} ${Math.abs(d * 100).toFixed(0)}% vs ${unMes ? 'mes' : 'periodo'} anterior`, bueno: masEsMejor ? d >= 0 : d <= 0 }
 }
 
 export default function Finanzas() {
   const isMobile = useIsMobile()
   const [periodo, setPeriodo] = useState<Periodo>('12m')
+  // Mes con mes: un mes cualquiera, navegable con flechas.
+  const [mesSel, setMesSel] = useState<string>(() => sumarMeses(mesActual(), -1))
+  const elegirMes = (ym: string) => {
+    const hoy = mesActual()
+    const m = ym > hoy ? hoy : ym < PRIMER_MES ? PRIMER_MES : ym
+    setMesSel(m)
+    setPeriodo('mes_sel')
+  }
+  const listaMeses = useMemo(() => {
+    const out: string[] = []
+    for (let m = mesActual(); m >= PRIMER_MES; m = sumarMeses(m, -1)) out.push(m)
+    return out
+  }, [])
   const [pestana, setPestana] = useState<Pestana>('resumen')
   const [raw, setRaw] = useState<TableroRaw | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [recarga, setRecarga] = useState(0)
 
-  const rango = useMemo(() => rangoDe(periodo), [periodo])
+  const rango = useMemo(() => (periodo === 'mes_sel' ? { desde: mesSel, hasta: mesSel } : rangoDe(periodo)), [periodo, mesSel])
   const nMeses = useMemo(() => {
     const a = Number(rango.desde.slice(0, 4)) * 12 + Number(rango.desde.slice(5, 7))
     const b = Number(rango.hasta.slice(0, 4)) * 12 + Number(rango.hasta.slice(5, 7))
@@ -158,6 +179,24 @@ export default function Finanzas() {
             background: periodo === p.id ? '#10B98118' : '#141414', color: periodo === p.id ? '#10B981' : '#a9a8a1',
           }}>{p.label}</button>
         ))}
+        {/* Mes con mes: un mes cerrado a la vez, comparado contra el anterior. */}
+        <div style={{
+          display: 'flex', alignItems: 'center', borderRadius: 8, overflow: 'hidden',
+          border: '1px solid ' + (periodo === 'mes_sel' ? '#10B981' : '#2a2a2a'),
+          background: periodo === 'mes_sel' ? '#10B98118' : '#141414',
+        }}>
+          <button onClick={() => elegirMes(sumarMeses(periodo === 'mes_sel' ? mesSel : mesActual(), -1))}
+            disabled={periodo === 'mes_sel' && mesSel <= PRIMER_MES} title="Mes anterior"
+            style={{ padding: '6px 10px', background: 'none', border: 'none', color: '#a9a8a1', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>‹</button>
+          <select value={periodo === 'mes_sel' ? mesSel : ''} onChange={e => elegirMes(e.target.value)}
+            style={{ background: 'transparent', border: 'none', color: periodo === 'mes_sel' ? '#10B981' : '#a9a8a1', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '6px 2px', fontFamily: 'inherit', outline: 'none' }}>
+            {periodo !== 'mes_sel' && <option value="" disabled>Mes con mes</option>}
+            {listaMeses.map(m => <option key={m} value={m} style={{ background: '#141414', color: '#ddd' }}>{nombreMes(m)}</option>)}
+          </select>
+          <button onClick={() => elegirMes(sumarMeses(periodo === 'mes_sel' ? mesSel : mesActual(), 1))}
+            disabled={periodo === 'mes_sel' && mesSel >= mesActual()} title="Mes siguiente"
+            style={{ padding: '6px 10px', background: 'none', border: 'none', color: '#a9a8a1', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>›</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #222', marginBottom: 16, overflowX: 'auto' }}>
@@ -266,18 +305,18 @@ function TabResumen({ T, P, meses, raw, nMeses, comparable, nominaReal }: { T: T
       <Rejilla cols={4}>
         <Indicador etiqueta="Vendido (contratado)" valor={fmtM(T.vendido)}
           detalle={`${T.contratos} contratos · ${fmtM(T.meses ? T.vendido / T.meses : 0)} al mes`}
-          delta={comparable.vendido ? deltaTxt(T.vendido, P.vendido, true) : null} />
+          delta={comparable.vendido ? deltaTxt(T.vendido, P.vendido, true, nMeses === 1) : null} />
         <Indicador etiqueta="Cobrado" valor={fmtM(T.cobrado)}
           detalle={<>{fmtPct(conv, 0)} de lo vendido en el periodo · {fmtM(cobroMes)} al mes</>}
-          delta={comparable.cobrado ? deltaTxt(T.cobrado, P.cobrado, true) : null} />
+          delta={comparable.cobrado ? deltaTxt(T.cobrado, P.cobrado, true, nMeses === 1) : null} />
         <Indicador etiqueta="Nómina" valor={fmtM(T.nomina)}
           detalle={<><b style={{ color: '#fff' }}>{fmtPct(nomPct)}</b> de lo cobrado · tope 20%, zona segura 17% · {fmtM(nominaMes)} al mes.{baseNomina}</>}
           estado={estadoNomina}
           estadoTexto={estadoNomina === 'bueno' ? 'En zona segura' : estadoNomina === 'alerta' ? 'Cerca del tope' : 'Arriba del tope'}
-          delta={comparable.nomina ? deltaTxt(T.nomina, P.nomina, false) : null} />
+          delta={comparable.nomina ? deltaTxt(T.nomina, P.nomina, false, nMeses === 1) : null} />
         <Indicador etiqueta="Pagado a proveedores" valor={fmtM(T.proveedores)}
           detalle={<>{fmtPct(provPct)} de lo cobrado</>}
-          delta={comparable.proveedores ? deltaTxt(T.proveedores, P.proveedores, false) : null} />
+          delta={comparable.proveedores ? deltaTxt(T.proveedores, P.proveedores, false, nMeses === 1) : null} />
       </Rejilla>
 
       <Rejilla cols={4}>
@@ -361,7 +400,7 @@ function TabResumen({ T, P, meses, raw, nMeses, comparable, nominaReal }: { T: T
         </Tarjeta>
       </div>
 
-      {nMeses === 1 && <Nota>Con «Este mes» los indicadores son del mes en curso (incompleto); las gráficas muestran los últimos 12 meses para dar contexto.</Nota>}
+      {nMeses === 1 && <Nota>Los indicadores son de un solo mes, comparados contra el mes anterior; las gráficas muestran los 12 meses que terminan en ese mes para dar contexto. El mes en curso todavía está incompleto.</Nota>}
     </div>
   )
 }

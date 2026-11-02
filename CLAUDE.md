@@ -3934,3 +3934,10 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - La entrega que se edita no cuenta contra sí misma (`init.id`), y sus líneas siempre se muestran.
   - En pantalla: "programado X" en morado. La cantidad por omisión no pasa de lo libre.
 - **Movimientos huérfanos** (destino obra sin quotation_id ni po_id): quedaba 1 (MOV-260811-130, un UniFi a Ventanas Sacal que no está en ninguna OC), sin efecto en lo ofrecido.
+
+### 2026-11-02 — Finanzas: mes con mes
+- Pedido de Elias: "Dame la posibilidad en finanzas de ver mes con mes".
+- `src/pages/Finanzas.tsx`: nuevo periodo `'mes_sel'` + estado `mesSel` (YYYY-MM, por omisión el mes pasado). Control junto a los botones de periodo: ‹ [select con todos los meses] ›.
+  - Rango = `{ desde: mesSel, hasta: mesSel }`; se compara contra el mes anterior ("vs mes anterior" en los KPIs cuando `nMeses === 1`); las gráficas muestran los 12 meses que terminan en el mes elegido. Aplica a Resumen, Flujo y Por área; Cartera y CxP siguen siendo "hoy".
+  - `PRIMER_MES = '2025-01'`: desde ahí hay banco completo (nómina, gastos, impuestos). 2024 solo trae venta, cobranza y proveedores, por eso no se ofrece. No se puede pasar del mes en curso.
+- Sin cambios en BD (usa la misma RPC `finanzas_tablero`).
