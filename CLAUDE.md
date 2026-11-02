@@ -3911,3 +3911,26 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - `confianza_autodetect = 'baja'`.
   - Al insertar, los triggers ligan los folios a su OC o cotización y llenan proyecto, categoría, tipo de gasto y beneficiario. Mismo dedup e inserción que el camino con IA.
 - **Incidente del 30-oct, 20:45–23:00:** el Disk IO Budget se agotó en la instancia **NANO** (0.5 GB). La base dejó de contestar: checkpoints de 4 buffers tardaban 30–108 s y había timeouts de cron. Elias tenía la opción "Free Upgrade" a MICRO al mismo precio. Si vuelve el aviso de Disk IO, el siguiente nivel es SMALL.
+
+## 🚚 Entregas: lo entregado y lo programado ya no se vuelve a ofrecer (2026-11-02)
+- **Pedido de Gabriel (Logística):** al marcar una entrega como entregada, sus materiales deben salir del inventario y no poder seleccionarse otra vez; aplicarlo también a todas las entregas viejas con recibo y marcadas como entregadas.
+- **Diagnóstico:**
+  - El flujo actual (`cycleEstatusInterno` → `confirmarEntrega`) SÍ escribe la salida al libro, con reclamo atómico. Las 20+ entregas completadas de octubre tienen sus movimientos.
+  - Los huecos venían de julio a septiembre:
+    - 6 entregas completadas sin movimientos YA estaban cubiertas por capturas manuales en Registrar (mismo material y cantidad, fechas cercanas: R222 → MOV-260917-122, KIBRIT → MOV-260817-556, E102, Concorde, María Attie). **No se tocaron**: se habría descontado doble.
+    - Huecos reales: Manuel Casas (ENT-260811-984 sin movimientos; ENT-260814-758 con movimiento **sin quotation_id**, invisible para `cargarInventarioEntregable`) y Lobbys Arcos Bosques (ENT-260813-939/-444, tipo entrega titulado "Recolección", directo del proveedor a la obra).
+- **Ajuste retroactivo** (batch `6a1d3f2e-0b0c-4e11-9b11-20261102e7a1`, con nota):
+  - ENT-260811-984: 6 renglones / 39 pzas, `bodega_a_obra`.
+  - ENT-260813-939: 5 renglones / 304; ENT-260813-444: cordón 20. Ambos `recepcion_compra` origen proveedor y destino obra, ligados a su OC, topados a lo comprado; el cordón viene en los dos recibos y se contó una sola vez.
+  - `quotation_id` puesto al movimiento de ENT-260814-758.
+  - Para revertir: `anulado = true` por `batch_id`.
+- **No tocado, a confirmar con Gabriel:**
+  - Pico Love ENT-260728-368 (casi todo es copia de la del 23-jul; diferencias de 100 m de cable y 10 tubos).
+  - Concorde: los 4 rieles de 2 m están en el recibo pero no en los renglones de la entrega.
+  - R222-IE01-C03 recibida 3 veces (ENT-261006-151, ENT-261006-194, MOV-261006-159): bodega fantasma.
+  - Entrega pendiente ENT-260723-324 (KIBRIT) desde julio, que ahora aparta su material.
+- **Código** (`Entregas.tsx` / `cargarInventarioEntregable`):
+  - Lo que ya va en otra entrega **pendiente o en ruta** se aparta: `por_entregar = comprado − entregado − programado`. La llave es `it.key` del recibo, la misma de la línea.
+  - La entrega que se edita no cuenta contra sí misma (`init.id`), y sus líneas siempre se muestran.
+  - En pantalla: "programado X" en morado. La cantidad por omisión no pasa de lo libre.
+- **Movimientos huérfanos** (destino obra sin quotation_id ni po_id): quedaba 1 (MOV-260811-130, un UniFi a Ventanas Sacal que no está en ninguna OC), sin efecto en lo ofrecido.

@@ -1716,9 +1716,30 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
     }
     cots.forEach(cot => { poItems.filter(pi => poCot[pi.purchase_order_id] === cot.id).forEach(pi => { const r = ensureLine(cot.lead_id!, cot, pi); r.comprado += Number(pi.quantity) || 0 }) })
     movs.forEach((m: any) => { const mCot = m.quotation_id || (m.po_id ? poCot[m.po_id] : null); const cot = cots.find(c => c.id === mCot); if (!cot) return; const r = ensureLine(cot.lead_id!, cot, m); if (m.tipo === 'recepcion_compra') r.recibido += Number(m.qty) || 0; if (m.destino_tipo === 'obra') r.entregado += Number(m.qty) || 0 })
+    // ── Lo que ya va en otra entrega programada no se puede volver a mandar ──
+    // Gabriel (Logística, nov-2026): una vez que un material está en un recibo
+    // no debe poder seleccionarse otra vez. Lo ENTREGADO ya se descuenta del
+    // libro; lo PROGRAMADO (pendiente o en ruta) se aparta aquí. La entrega
+    // que se está editando no cuenta contra sí misma. La llave de cada renglón
+    // del recibo es la misma llave de línea de este inventario.
+    const { data: progRaw } = await supabase.from('logistics_tasks')
+      .select('id,items,estatus').eq('tipo', 'entrega').not('estatus', 'in', '("completada","cancelada")')
+    const programado: Record<string, number> = {}
+    ;((progRaw as any[]) || []).forEach(t => {
+      if (init.id && t.id === init.id) return
+      ;(Array.isArray(t.items) ? t.items : []).forEach((it: any) => {
+        if (!it || !it.key) return
+        programado[it.key] = (programado[it.key] || 0) + (Number(it.qty) || 0)
+      })
+    })
+    const mios = new Set<string>((init.id && Array.isArray(init.items)) ? init.items.map((i: any) => i.key).filter(Boolean) : [])
     const out: Record<string, any> = {}
     Object.entries(byLead).forEach(([gk, v]: any) => {
-      const lines = Array.from(v.map.values()).map((r: any) => ({ ...r, en_bodega: Math.max(0, r.recibido - r.entregado), por_recibir: Math.max(0, r.comprado - r.recibido), por_entregar: Math.max(0, r.comprado - r.entregado) })).filter((r: any) => r.por_entregar > 0).sort((a: any, b: any) => (a.descripcion || '').localeCompare(b.descripcion || ''))
+      const lines = Array.from(v.map.values()).map((r: any) => {
+        const porEntregar = Math.max(0, r.comprado - r.entregado)
+        const prog = programado[r.key] || 0
+        return { ...r, en_bodega: Math.max(0, r.recibido - r.entregado), por_recibir: Math.max(0, r.comprado - r.recibido), programado: prog, por_entregar: Math.max(0, porEntregar - prog) }
+      }).filter((r: any) => r.por_entregar > 0 || mios.has(r.key)).sort((a: any, b: any) => (a.descripcion || '').localeCompare(b.descripcion || ''))
       if (lines.length) out[gk] = { name: v.name, leadName: v.leadName, lead_id: v.lead_id, quotation_id: v.quotation_id, specialty: v.specialty, lines }
     })
     return out
@@ -1741,7 +1762,7 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
   const lineas = (entLead && invByLead && invByLead[entLead]) ? invByLead[entLead].lines : []
   const leadNameEnt = invByLead && invByLead[entLead] ? invByLead[entLead].name : ''
 
-  function toggle(ln: any) { setSel(s => { const cur = s[ln.key]; if (cur?.on) return { ...s, [ln.key]: { ...cur, on: false } }; const def = ln.en_bodega > 0 ? ln.en_bodega : ln.por_entregar; return { ...s, [ln.key]: { qty: cur?.qty || def, on: true } } }) }
+  function toggle(ln: any) { setSel(s => { const cur = s[ln.key]; if (cur?.on) return { ...s, [ln.key]: { ...cur, on: false } }; const def = ln.en_bodega > 0 ? Math.min(ln.en_bodega, ln.por_entregar) : ln.por_entregar; return { ...s, [ln.key]: { qty: cur?.qty || def, on: true } } }) }
   function setQty(k: string, v: number) { setSel(s => ({ ...s, [k]: { qty: v, on: true } })) }
   // Si lo marcado excede la existencia en bodega, el material casi seguro
   // viene del proveedor. No se decide solo: se avisa y el usuario elige.
@@ -2089,9 +2110,10 @@ function TareaModal({ init, obras, leads, empleados, onClose, onSaved }: any) {
                             <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                               <span style={{ color: l.en_bodega > 0 ? '#10B981' : '#555' }}>Bodega {fmtQ(l.en_bodega)}</span>
                               {l.por_recibir > 0 && <span style={{ color: '#D97706' }}> · por recibir {fmtQ(l.por_recibir)}</span>}
+                              {l.programado > 0 && <span style={{ color: '#A78BFA' }} title="Ya va en otra entrega pendiente o en ruta: no se puede volver a mandar"> · programado {fmtQ(l.programado)}</span>}
                             </td>
                             <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                              <input type="number" min={0} max={l.por_entregar} value={sel[l.key]?.qty ?? ''} placeholder={String(l.en_bodega > 0 ? l.en_bodega : l.por_entregar)} onChange={e => setQty(l.key, Math.min(l.por_entregar, Number(e.target.value) || 0))} style={{ ...inputStyle, width: 60, padding: '4px 6px', textAlign: 'center' }} />
+                              <input type="number" min={0} max={l.por_entregar} value={sel[l.key]?.qty ?? ''} placeholder={String(l.en_bodega > 0 ? Math.min(l.en_bodega, l.por_entregar) : l.por_entregar)} onChange={e => setQty(l.key, Math.min(l.por_entregar, Number(e.target.value) || 0))} style={{ ...inputStyle, width: 60, padding: '4px 6px', textAlign: 'center' }} />
                               <span style={{ fontSize: 10, color: '#888', marginLeft: 5 }}>{unidadCanonica(l.unidad)}</span>
                             </td>
                           </tr>
