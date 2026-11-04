@@ -22,6 +22,8 @@ import ExpedientesAnticipo from '../components/ExpedientesAnticipo'
 import { F, formatDate, PHASE_CONFIG } from '../lib/utils'
 import { folioOC } from '../lib/folios'
 import { useIsMobile } from '../lib/useIsMobile'
+import NavegadorMes from '../components/layout/NavegadorMes'
+import { guardarDesdeUrl, urlFacturaApi, nombreSeguro } from '../lib/guardarArchivo'
 import { DEFAULT_TC } from '../lib/fx'
 import {
   FileText, Building2, ArrowLeftRight, ShieldCheck,
@@ -576,8 +578,8 @@ function BeneficiarioCell({
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const isMobile = useIsMobile()
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
-      <div style={{ background: '#1a1a1a', border: isMobile ? 'none' : '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100vw' : 'auto', minWidth: isMobile ? '100vw' : 500, maxWidth: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: isMobile ? 1150 : 1000 }} onClick={onClose}>
+      <div style={{ background: '#1a1a1a', border: isMobile ? 'none' : '1px solid #333', borderRadius: isMobile ? 0 : 16, padding: isMobile ? 'max(16px, env(safe-area-inset-top)) 16px 24px' : 24, boxSizing: 'border-box' as const, width: isMobile ? '100vw' : 'auto', minWidth: isMobile ? '100vw' : 500, maxWidth: isMobile ? '100vw' : 700, height: isMobile ? '100vh' : 'auto', maxHeight: isMobile ? '100vh' : '80vh', overflowY: 'auto' as const }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{title}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer' }}><X size={18} /></button>
@@ -819,7 +821,7 @@ export default function Contabilidad() {
                 color: active ? '#10B981' : '#666',
                 background: active ? 'rgba(87,255,154,0.08)' : 'transparent',
                 border: 'none', borderBottom: active ? '2px solid #10B981' : '2px solid transparent',
-                cursor: 'pointer', fontFamily: 'inherit',
+                cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0,
                 transition: 'all 0.12s', borderRadius: '8px 8px 0 0',
               }}
             >
@@ -1371,28 +1373,7 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
       )}
 
       {/* Month navigation */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: isMobile ? '1 1 100%' : 'initial' }}>
-          <button
-            onClick={() => setMonthOffset(monthOffset - 1)}
-            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >◀ Mes anterior</button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' }}>{monthLabelCapitalized}</span>
-          <button
-            onClick={() => setMonthOffset(monthOffset + 1)}
-            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >Mes siguiente ▶</button>
-          {monthOffset !== 0 && (
-            <button
-              onClick={() => setMonthOffset(0)}
-              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}
-            >Hoy</button>
-          )}
-        </div>
-        <div style={{ fontSize: 11, color: '#666' }}>
-          {monthInvoices.length} factura{monthInvoices.length !== 1 ? 's' : ''} · {monthMovements.length} movimiento{monthMovements.length !== 1 ? 's' : ''} bancario{monthMovements.length !== 1 ? 's' : ''}
-        </div>
-      </div>
+      <NavegadorMes etiqueta={monthLabelCapitalized} offset={monthOffset} onCambiar={setMonthOffset} resumen={<>{monthInvoices.length} factura{monthInvoices.length !== 1 ? 's' : ''} · {monthMovements.length} movimiento{monthMovements.length !== 1 ? 's' : ''} bancario{monthMovements.length !== 1 ? 's' : ''}</>} />
 
       {/* KPIs - Fila MXN */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
@@ -1686,14 +1667,16 @@ function TabFacturacion({ invoices, setInvoices, bankMovements, projectNames }: 
             <div style={{ display: 'flex', gap: 6 }}>
               {selectedInv.facturapi_id && (
                 <>
-                  <Btn size="sm" variant="default" onClick={() => {
-                    const m = selectedInv.sandbox === false ? 'live' : 'test'
-                    window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + selectedInv.facturapi_id, '_blank')
-                  }}>📄 Ver PDF</Btn>
-                  <Btn size="sm" variant="default" onClick={() => {
-                    const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
-                    window.location.href = '/api/facturapi?action=download_xml&mode=' + m + '&id=' + (selectedInv as any).facturapi_id
-                  }}>⬇ XML</Btn>
+                  {(['pdf', 'xml'] as const).map(ext => (
+                    <Btn key={ext} size="sm" variant="default" onClick={() => {
+                      // Se baja y se guarda (en iPhone abre "Guardar en Archivos");
+                      // window.open lo mostraba sin forma de guardarlo.
+                      const m = (selectedInv as any).sandbox === false ? 'live' : 'test'
+                      const quien = selectedInv.direccion === 'recibida' ? selectedInv.emisor_nombre : selectedInv.receptor_nombre
+                      guardarDesdeUrl(urlFacturaApi(String((selectedInv as any).facturapi_id), m, ext), nombreSeguro('Factura ' + (selectedInv.serie || '') + (selectedInv.folio || '') + ' ' + (quien || '')) + '.' + ext)
+                        .catch((e: any) => alert('No se pudo descargar: ' + (e?.message || e)))
+                    }}>{ext === 'pdf' ? '📄 PDF' : '⬇ XML'}</Btn>
+                  ))}
                   {selectedInv.estado === 'timbrada' && (
                     <Btn size="sm" variant="default" onClick={() => { setCancelInvoice(selectedInv); setCancelMotive('02') }}>
                       <span style={{ color: '#fca5a5' }}>✗ Cancelar</span>
@@ -3816,28 +3799,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       })()}
 
       {/* Navegacion mensual (Conciliacion v2) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10, flexWrap: 'wrap', gap: isMobile ? 8 : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: isMobile ? '1 1 100%' : 'initial' }}>
-          <button
-            onClick={() => setMonthOffset(monthOffset - 1)}
-            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >◀ Mes anterior</button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
-          <button
-            onClick={() => setMonthOffset(monthOffset + 1)}
-            style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}
-          >Mes siguiente ▶</button>
-          {monthOffset !== 0 && (
-            <button
-              onClick={() => setMonthOffset(0)}
-              style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}
-            >Hoy</button>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 11, color: '#666' }}>
-            {movsCuenta.length} movimiento{movsCuenta.length !== 1 ? 's' : ''} en {activeAcc.label}
-          </span>
+      <NavegadorMes etiqueta={monthLabelCapitalized} offset={monthOffset} onCambiar={setMonthOffset}
+        resumen={<>{movsCuenta.length} movimiento{movsCuenta.length !== 1 ? 's' : ''} en {activeAcc.label}</>}
+        acciones={<>
           <button
             onClick={() => setShowGeneral(true)}
             title="Ver TODOS los movimientos (todas las cuentas, meses y años) para filtrar por proyecto y corregir el vínculo"
@@ -3858,8 +3822,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             disabled={exporting || movsCuenta.length === 0}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', fontSize: 11, fontWeight: 600, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: exporting ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: movsCuenta.length === 0 ? 0.4 : 1 }}
           >{exporting ? <Loader2 size={12} className="spin" /> : <Download size={12} />} Excel</button>
-        </div>
-      </div>
+        </>} />
 
       {/* Selector de cuenta (Conciliacion v2) */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: '#0f0f0f', borderRadius: 10, padding: 4, border: '1px solid #1f1f1f' }}>
@@ -4068,8 +4031,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       {bankMovements.length === 0 ? (
         <EmptyState message="Sube un estado de cuenta (PDF de BBVA/Banorte, CSV o Excel) para iniciar la conciliación automática" />
       ) : (
-        <Table>
-          <thead><tr>
+        <Table minWidth={isMobile ? 0 : undefined}>
+          <thead style={isMobile ? { display: 'none' } : undefined}><tr>
             <Th><input type="checkbox" checked={allSelected} onChange={toggleAll} style={chkStyle} /></Th>
             <Th>Fecha</Th>
             <Th>Concepto</Th>
@@ -4084,25 +4047,17 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
             {filtered.map(m => {
               const match = !m.conciliado ? findMatch(m) : (m.factura_match_info ? { id: m.factura_match_id || '', info: m.factura_match_info } : null)
               const isExpanded = expandedId === m.id
-              return (
-                <React.Fragment key={m.id}>
-                  <tr style={{ opacity: m.conciliado ? 0.55 : 1, background: selected.has(m.id) ? 'rgba(87,255,154,0.04)' : undefined }}>
-                    <Td><input type="checkbox" checked={selected.has(m.id)} onChange={() => toggleOne(m.id)} style={chkStyle} /></Td>
-                    <Td muted>{m.fecha}</Td>
-                    <Td>
-                      <span style={{ color: '#ccc', fontSize: 12, cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>
-                        {m.concepto.length > 40 ? m.concepto.substring(0, 40) + '...' : m.concepto}
-                      </span>
-                    </Td>
-                    <Td><BeneficiarioCell
+
+              // Celdas compartidas por la fila de escritorio y la tarjeta de celular
+              const cBenef = (<><BeneficiarioCell
                       mov={m}
                       suggest={suggestBeneficiario(m)}
                       suppliers={assignSuppliers}
                       clientes={assignClientes}
                       empleados={assignEmpleados}
                       onAssign={(id, tipo, nombre) => setBeneficiarioMov(m.id, id, tipo, nombre)}
-                    /></Td>
-                    <Td>
+                    /></>)
+              const cProy = (<>
                       {(() => {
                         const filled = (m.lead_id ? 1 : 0) + (m.quotation_id ? 1 : 0) + (m.purchase_order_id ? 1 : 0)
                         if (filled === 0) return null
@@ -4134,8 +4089,8 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                       ) : (
                         <span style={{ color: '#444' }}>—</span>
                       )}
-                    </Td>
-                    <Td>{(() => {
+                    </>)
+              const cCat = (<>{(() => {
                       const curNat = NATURALEZA_OPTIONS.includes(m.categoria_sugerida || '') ? (m.categoria_sugerida as string) : 'otro'
                       const col = catColors[curNat] || '#555'
                       const curTg = m.tipo_gasto || ''
@@ -4183,16 +4138,14 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                           )}
                         </div>
                       )
-                    })()}</Td>
-                    <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#DC2626' }}>{F(m.monto)}</span> : ''}</Td>
-                    <Td right>{m.tipo === 'abono' ? <span style={{ color: '#10B981' }}>{F(m.monto)}</span> : ''}</Td>
-                    <Td>{(() => {
+                    })()}</>)
+              const cMatch = (<>{(() => {
                       const lnkCount = getLinksForMov(m.id).length
                       if (lnkCount > 0) return <span style={{ fontSize: 10, color: '#22c55e', cursor: 'pointer', fontWeight: 600 }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 {lnkCount} fact.</span>
                       if (match) return <span style={{ fontSize: 10, color: '#2563EB', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>🔗 Ver</span>
                       return <span style={{ fontSize: 10, color: '#444', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>+ Vincular</span>
-                    })()}</Td>
-                    <Td>
+                    })()}</>)
+              const cBoton = (<>
                       <button
                         onClick={async () => {
                           if (!m.conciliado && match && match.id) {
@@ -4211,8 +4164,44 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                       >
                         {m.conciliado ? 'Desconciliar' : 'Conciliar ✓'}
                       </button>
-                    </Td>
+                    </>)
+              return (
+                <React.Fragment key={m.id}>
+{isMobile ? (
+                  <tr style={{ opacity: m.conciliado ? 0.55 : 1, background: selected.has(m.id) ? 'rgba(87,255,154,0.04)' : undefined }}>
+                    <td colSpan={10} style={{ padding: '12px 12px', borderBottom: '1px solid #1a1a1a' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggleOne(m.id)} style={chkStyle} />
+                        <span style={{ fontSize: 11, color: '#777' }}>{m.fecha}</span>
+                        {m.conciliado && <span style={{ fontSize: 10, color: '#22c55e', fontWeight: 600 }}>✓ conciliado</span>}
+                        <span style={{ marginLeft: 'auto', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', color: m.tipo === 'cargo' ? '#DC2626' : '#10B981' }}>{m.tipo === 'cargo' ? '−' : '+'}{F(m.monto)}</span>
+                      </div>
+                      <div onClick={() => setExpandedId(isExpanded ? null : m.id)} style={{ fontSize: 13, color: '#ddd', marginTop: 6, lineHeight: 1.35, wordBreak: 'break-word', cursor: 'pointer' }}>{m.concepto}</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 }}>{cBenef}{cProy}</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                        {cCat}
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>{cMatch}{cBoton}</div>
+                      </div>
+                    </td>
                   </tr>
+                  ) : (
+                  <tr style={{ opacity: m.conciliado ? 0.55 : 1, background: selected.has(m.id) ? 'rgba(87,255,154,0.04)' : undefined }}>
+                    <Td><input type="checkbox" checked={selected.has(m.id)} onChange={() => toggleOne(m.id)} style={chkStyle} /></Td>
+                    <Td muted>{m.fecha}</Td>
+                    <Td>
+                      <span style={{ color: '#ccc', fontSize: 12, cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : m.id)}>
+                        {m.concepto.length > 40 ? m.concepto.substring(0, 40) + '...' : m.concepto}
+                      </span>
+                    </Td>
+                    <Td>{cBenef}</Td>
+                    <Td>{cProy}</Td>
+                    <Td>{cCat}</Td>
+                    <Td right>{m.tipo === 'cargo' ? <span style={{ color: '#DC2626' }}>{F(m.monto)}</span> : ''}</Td>
+                    <Td right>{m.tipo === 'abono' ? <span style={{ color: '#10B981' }}>{F(m.monto)}</span> : ''}</Td>
+                    <Td>{cMatch}</Td>
+                    <Td>{cBoton}</Td>
+                  </tr>
+                  )}
                   {/* Expanded row */}
                   {isExpanded && (
                     <tr>

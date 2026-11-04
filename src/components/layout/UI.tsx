@@ -338,12 +338,17 @@ export function Btn({ children, onClick, variant = 'default', size = 'md', style
 }
 
 // ── Section Header ────────────────────────────────────────────────────────────
+function enCelular(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth < 768
+}
+
 export function SectionHeader({ title, subtitle, action }: {
   title: string; subtitle?: string; action?: ReactNode
 }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-      <div>
+      {/* En celular el botón de menú vive fijo en la esquina: se le deja su espacio. */}
+      <div style={{ paddingLeft: enCelular() ? 50 : 0, minWidth: 0 }}>
         <div style={{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 12, color: '#555' }}>{subtitle}</div>}
       </div>

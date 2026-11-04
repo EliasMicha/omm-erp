@@ -1,9 +1,11 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { headersApi } from '../lib/sesionToken'
 import SearchSelect from '../components/SearchSelect'
 import { Plus, X, FileText, RefreshCw, Download, Trash2, Search, Loader2, CheckCircle2, AlertCircle, Ban, FolderDown } from 'lucide-react'
 import { useIsMobile } from '../lib/useIsMobile'
+import NavegadorMes from '../components/layout/NavegadorMes'
+import { guardarFactura, guardarBlob, guardarDesdeUrl, urlFacturaApi, nombreSeguro } from '../lib/guardarArchivo'
 import { soloSistemasVendidos } from '../lib/sistemasVendidos'
 import { condicionesDeCotizacion, reconstruirCobro, factorNetoDeCobro } from '../lib/condicionesCotizacion'
 
@@ -443,29 +445,59 @@ export default function Facturacion() {
     }
   }
 
+  const toggleModo = facturapiConfig ? (
+    <div style={{ display: 'flex', gap: 4, background: '#0a0a0a', borderRadius: 6, padding: 3, border: '1px solid #2a2a2a' }}>
+      <button
+        onClick={() => switchMode('test')}
+        disabled={!facturapiConfig.hasTest}
+        style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: facturapiMode === 'test' ? 'rgba(251,191,36,0.2)' : 'transparent', border: 'none', borderRadius: 4, color: facturapiMode === 'test' ? '#fcd34d' : '#666', cursor: facturapiConfig.hasTest ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+      >TEST</button>
+      <button
+        onClick={() => {
+          if (window.confirm('Cambiar a modo LIVE? Se leeran y crearan facturas reales con efectos fiscales.')) {
+            switchMode('live')
+          }
+        }}
+        disabled={!facturapiConfig.hasLive}
+        style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.2)' : 'transparent', border: 'none', borderRadius: 4, color: facturapiMode === 'live' ? '#fca5a5' : '#666', cursor: facturapiConfig.hasLive ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
+      >LIVE</button>
+    </div>
+  ) : null
+
   return (
     <div style={{ padding: isMobile ? '12px 16px' : '24px 28px', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', marginBottom: 24, flexWrap: 'wrap', gap: isMobile ? 12 : 0 }}>
-        <div>
-          <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: '#fff', margin: 0 }}>Facturacion</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? 14 : 24, gap: 12 }}>
+        {/* En celular deja libre la esquina del botón de menú */}
+        <div style={{ paddingLeft: isMobile ? 50 : 0, minWidth: 0 }}>
+          <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: '#fff', margin: 0 }}>Facturación</h1>
           <div style={{ fontSize: 12, color: '#666', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             FacturAPI {facturapiMode === 'live' ? 'LIVE' : 'TEST'}
             {pingStatus === 'ok' && <CheckCircle2 size={12} style={{ color: '#10B981' }} />}
             {pingStatus === 'error' && <AlertCircle size={12} style={{ color: '#DC2626' }} />}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           <button onClick={() => setView('nueva')} style={{
-            padding: '8px 16px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8,
+            padding: isMobile ? '8px 12px' : '8px 16px', whiteSpace: 'nowrap', background: '#10B981', color: '#000', border: 'none', borderRadius: 8,
             fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6
           }}>
-            <Plus size={14} /> Nueva factura
+            <Plus size={14} /> {isMobile ? 'Nueva' : 'Nueva factura'}
           </button>
         </div>
       </div>
 
-      {/* Banner FacturAPI mode (Sesion B) */}
-      {facturapiConfig && (
+      {/* Banner FacturAPI mode (Sesion B). En celular, una sola línea. */}
+      {facturapiConfig && isMobile && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 10px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)') }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: facturapiMode === 'live' ? '#ef4444' : '#fbbf24' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: facturapiMode === 'live' ? '#fca5a5' : '#fcd34d' }}>{facturapiMode === 'live' ? 'LIVE · timbra CFDIs reales' : 'TEST · no timbra'}</div>
+            {facturapiPing && !facturapiPing.ok && <div style={{ fontSize: 10, color: '#fca5a5' }}>✗ {facturapiPing.message}</div>}
+          </div>
+          {toggleModo}
+        </div>
+      )}
+      {facturapiConfig && !isMobile && (
         <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.1)' : 'rgba(251,191,36,0.08)', border: '1px solid ' + (facturapiMode === 'live' ? 'rgba(239,68,68,0.4)' : 'rgba(251,191,36,0.3)'), flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: isMobile ? '1 1 100%' : 'initial', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -480,22 +512,7 @@ export default function Facturacion() {
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 4, background: '#0a0a0a', borderRadius: 6, padding: 3, border: '1px solid #2a2a2a' }}>
-            <button
-              onClick={() => switchMode('test')}
-              disabled={!facturapiConfig.hasTest}
-              style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: facturapiMode === 'test' ? 'rgba(251,191,36,0.2)' : 'transparent', border: 'none', borderRadius: 4, color: facturapiMode === 'test' ? '#fcd34d' : '#666', cursor: facturapiConfig.hasTest ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
-            >TEST</button>
-            <button
-              onClick={() => {
-                if (window.confirm('Cambiar a modo LIVE? Se leeran y crearan facturas reales con efectos fiscales.')) {
-                  switchMode('live')
-                }
-              }}
-              disabled={!facturapiConfig.hasLive}
-              style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: facturapiMode === 'live' ? 'rgba(239,68,68,0.2)' : 'transparent', border: 'none', borderRadius: 4, color: facturapiMode === 'live' ? '#fca5a5' : '#666', cursor: facturapiConfig.hasLive ? 'pointer' : 'not-allowed', fontFamily: 'inherit' }}
-            >LIVE</button>
-          </div>
+          {toggleModo}
         </div>
       )}
 
@@ -522,9 +539,48 @@ export default function Facturacion() {
 }
 
 // ============================================================
+// Celular: una tarjeta por factura en vez de la tabla de 8 columnas
+// ============================================================
+function btnAccion(color: string) {
+  return {
+    padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+    background: color + '14', border: '1px solid ' + color + '44', color, fontFamily: 'inherit',
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+  }
+}
+
+function TarjetaFactura(props: { f: Factura; contraparte: string | null; rfc: string | null; colorTotal: string; mostrarDireccion?: boolean; onAbrir?: () => void; acciones?: ReactNode }) {
+  const f = props.f
+  const isEmit = f.direccion === 'emitida'
+  const colSt = f.status === 'timbrada' ? '#10B981' : f.status === 'cancelada' ? '#DC2626' : '#D97706'
+  const fecha = f.fecha_emision ? new Date(f.fecha_emision).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' }) : '--'
+  return (
+    <div onClick={props.onAbrir} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: '12px 14px', marginBottom: 8, cursor: props.onAbrir ? 'pointer' : 'default', opacity: f.status === 'cancelada' ? 0.65 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        {props.mostrarDireccion && (
+          <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', background: isEmit ? 'rgba(87,255,154,0.15)' : 'rgba(251,191,36,0.12)', color: isEmit ? '#10B981' : '#fcd34d' }}>{isEmit ? 'EMI' : 'REC'}</span>
+        )}
+        <span style={{ fontSize: 12, color: '#ccc', fontFamily: 'monospace' }}>{f.serie || ''}{f.folio || '--'}</span>
+        <span style={{ fontSize: 11, color: '#777' }}>{fecha}</span>
+        <span style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: colSt + '22', color: colSt }}>{f.status}</span>
+      </div>
+      <div style={{ fontSize: 14, color: '#eee', fontWeight: 600, lineHeight: 1.3, wordBreak: 'break-word' as const }}>{props.contraparte || '--'}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+        <span style={{ fontSize: 11, color: '#777', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis' }}>{props.rfc || ''}</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: props.colorTotal, whiteSpace: 'nowrap' as const }}>${(f.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} <span style={{ fontSize: 11, fontWeight: 600 }}>{f.moneda}</span></span>
+      </div>
+      {props.acciones && (
+        <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid #1a1a1a' }}>{props.acciones}</div>
+      )}
+    </div>
+  )
+}
+
+// ============================================================
 // Lista de TODAS las facturas (emitidas + recibidas) con sync unificado
 // ============================================================
 function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
+  const isMobile = useIsMobile()
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -658,17 +714,11 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
     setLoadingDetalle(false)
   }
 
-  function descargarPdf(f: Factura) {
-    if (!f.facturapi_id) { alert('Sin ID FacturAPI'); return }
-    const m = (f as any).sandbox ? 'test' : 'live'
-    window.open('/api/facturapi?action=download_pdf&mode=' + m + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
-  }
+  // Se baja el archivo y se guarda: con window.open el iPhone (app de inicio)
+  // lo mostraba en un visor sin forma de guardarlo.
+  function descargarPdf(f: Factura) { guardarFactura(f, 'pdf') }
 
-  function descargarXml(f: Factura) {
-    if (!f.facturapi_id) { alert('Sin ID FacturAPI'); return }
-    const m = (f as any).sandbox ? 'test' : 'live'
-    window.open('/api/facturapi?action=download_xml&mode=' + m + '&id=' + encodeURIComponent(f.facturapi_id), '_blank')
-  }
+  function descargarXml(f: Factura) { guardarFactura(f, 'xml') }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [monthOffset])
@@ -873,14 +923,7 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
       setExportProgress('Generando archivo ZIP...')
       const content = await zip.generateAsync({ type: 'blob' })
       const mStr = monthDate.toISOString().slice(0, 7)
-      const url = URL.createObjectURL(content)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Facturas_${mStr}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      await guardarBlob(content, `Facturas_${mStr}.zip`)
       if (errors > 0) alert(`Descarga completa. ${errors} archivo(s) no se pudieron descargar.`)
     } catch (err: any) {
       alert('Error al exportar: ' + (err.message || err))
@@ -908,34 +951,21 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
   return (
     <div>
       {/* Navegador mensual con contador desglosado */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>◀ Mes anterior</button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
-          <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
-          {monthOffset !== 0 && (
-            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
-          )}
-        </div>
-        <div style={{ fontSize: 11, color: '#888' }}>
-          <span style={{ color: '#ccc', fontWeight: 600 }}>{facturasMes.length}</span> factura{facturasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}
-          <span style={{ color: '#666' }}> ({cntEmit} emit + {cntRec} rec)</span>
-        </div>
-      </div>
+      <NavegadorMes etiqueta={monthLabelCapitalized} offset={monthOffset} onCambiar={setMonthOffset} resumen={<><span style={{ color: '#ccc', fontWeight: 600 }}>{facturasMes.length}</span> factura{facturasMes.length !== 1 ? 's' : ''} · {cntEmit} emitida{cntEmit !== 1 ? 's' : ''} · {cntRec} recibida{cntRec !== 1 ? 's' : ''}</>} />
 
       {/* Search bar + boton sync unificado */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por contraparte, RFC, UUID o folio..." style={{ width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : 1, maxWidth: isMobile ? 'none' : 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por contraparte, RFC, UUID o folio..." style={{ width: '100%', padding: isMobile ? '10px 12px 10px 34px' : '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
         </div>
-        <button onClick={sincronizarMes} disabled={syncing} style={{ padding: '10px 16px', background: syncing ? '#1e1e1e' : '#10B981', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+        <button onClick={sincronizarMes} disabled={syncing} style={{ flex: isMobile ? 1 : 'initial', justifyContent: 'center', padding: '10px 16px', background: syncing ? '#1e1e1e' : '#10B981', color: syncing ? '#888' : '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {syncing ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />}
-          {syncing ? (syncProgress || 'Sincronizando...') : 'Sincronizar ' + monthLabelCapitalized}
+          {syncing ? (syncProgress || 'Sincronizando...') : isMobile ? 'Sincronizar' : 'Sincronizar ' + monthLabelCapitalized}
         </button>
-        <button onClick={exportarZip} disabled={syncing || exporting || facturas.length === 0} style={{ padding: '10px 16px', background: exporting ? '#1e1e1e' : '#1e1e1e', color: exporting ? '#888' : '#10B981', border: '1px solid #10B98144', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+        <button onClick={exportarZip} disabled={syncing || exporting || facturas.length === 0} style={{ flex: isMobile ? 1 : 'initial', justifyContent: 'center', padding: '10px 16px', background: exporting ? '#1e1e1e' : '#1e1e1e', color: exporting ? '#888' : '#10B981', border: '1px solid #10B98144', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: exporting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {exporting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FolderDown size={13} />}
-          {exporting ? (exportProgress || 'Exportando...') : 'Descargar PDF + XML'}
+          {exporting ? (exportProgress || 'Exportando...') : isMobile ? 'PDF + XML (ZIP)' : 'Descargar PDF + XML'}
         </button>
       </div>
 
@@ -954,6 +984,36 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
           <FileText size={32} style={{ color: '#333', marginBottom: 12 }} />
           <div style={{ fontSize: 14, marginBottom: 6 }}>{search ? 'Sin resultados' : 'No hay facturas en ' + monthLabelCapitalized}</div>
           <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar TODO con FacturAPI" para traer las facturas del SAT</div>
+        </div>
+      ) : isMobile ? (
+        <div>
+          {filtered.map(f => {
+            const isEmit = f.direccion === 'emitida'
+            const borradorEmitido = f.status === 'borrador' && isEmit && !f.facturapi_id
+            return (
+              <TarjetaFactura key={f.id} f={f} mostrarDireccion
+                contraparte={isEmit ? f.receptor_nombre : f.emisor_nombre}
+                rfc={isEmit ? f.receptor_rfc : f.emisor_rfc}
+                colorTotal={isEmit ? '#10B981' : '#fcd34d'}
+                onAbrir={() => abrirDetalle(f)}
+                acciones={(borradorEmitido || f.facturapi_id || f.status === 'cancelada' || f.status === 'error') ? (
+                  <>
+                    {borradorEmitido && onEditar && <button onClick={() => onEditar(f)} style={btnAccion('#2563EB')}>Editar</button>}
+                    {borradorEmitido && (
+                      <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={btnAccion('#10B981')}>
+                        {timbrandoId === f.id ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
+                      </button>
+                    )}
+                    {f.facturapi_id && <button onClick={() => guardarFactura(f, 'pdf')} style={btnAccion('#A78BFA')}><Download size={13} /> PDF</button>}
+                    {f.facturapi_id && <button onClick={() => guardarFactura(f, 'xml')} style={btnAccion('#60A5FA')}><Download size={13} /> XML</button>}
+                    {(f.status === 'borrador' || f.status === 'cancelada' || f.status === 'error') && (
+                      <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ ...btnAccion('#DC2626'), marginLeft: 'auto' }}><Trash2 size={13} /></button>
+                    )}
+                  </>
+                ) : null}
+              />
+            )
+          })}
         </div>
       ) : (
         <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
@@ -1005,8 +1065,8 @@ function ListaTodas({ onEditar }: { onEditar?: (f: Factura) => void } = {}) {
                             {timbrandoId === f.id ? <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
                           </button>
                         )}
-                        {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
-                        {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
+                        {f.facturapi_id && <button onClick={() => guardarFactura(f, 'pdf')} style={{ background: 'none', border: 'none', color: '#A78BFA', fontSize: 10, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>PDF</button>}
+                        {f.facturapi_id && <button onClick={() => guardarFactura(f, 'xml')} style={{ background: 'none', border: 'none', color: '#A78BFA', fontSize: 10, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>XML</button>}
                         {(f.status === 'borrador' || f.status === 'cancelada' || f.status === 'error') && (
                           <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
                             <Trash2 size={13} />
@@ -1048,17 +1108,17 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
   const hasFacturapiId = !!f.facturapi_id
   const isMobile = useIsMobile()
   return (
-    <div onClick={props.onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: isMobile ? 'flex-start' : 'flex-start', justifyContent: 'center', padding: isMobile ? 0 : 40, zIndex: 100, overflowY: 'auto' as const }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: '#0a0a0a', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 12, maxWidth: isMobile ? '100vw' : 900, width: isMobile ? '100vw' : '100%', padding: isMobile ? 16 : 24, color: '#ddd', maxHeight: isMobile ? '100vh' : 'auto', overflowY: isMobile ? 'auto' : 'visible' as const, marginTop: isMobile ? 0 : 'auto' }}>
+    <div onClick={props.onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: isMobile ? 'flex-start' : 'flex-start', justifyContent: 'center', padding: isMobile ? 0 : 40, zIndex: isMobile ? 1150 : 100, overflowY: 'auto' as const }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#0a0a0a', border: isMobile ? 'none' : '1px solid #2a2a2a', borderRadius: isMobile ? 0 : 12, maxWidth: isMobile ? '100vw' : 900, width: isMobile ? '100vw' : '100%', padding: isMobile ? 'max(16px, env(safe-area-inset-top)) 16px 24px' : 24, boxSizing: 'border-box' as const, color: '#ddd', maxHeight: isMobile ? '100vh' : 'auto', overflowY: isMobile ? 'auto' : 'visible' as const, marginTop: isMobile ? 0 : 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <span style={{ padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#1e1e1e', color: dirColor }}>{dirLabel}</span>
             <span style={{ marginLeft: 8, fontSize: 14, color: '#fff' }}>{f.serie || ''}{f.folio || '--'}</span>
           </div>
-          <button onClick={props.onClose} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 20 }}>X</button>
+          <button onClick={props.onClose} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 4, display: 'flex' }}><X size={22} /></button>
         </div>
         <div style={{ marginBottom: 16, fontSize: 12 }}>
-          <div style={{ color: '#888' }}>UUID: <span style={{ fontFamily: 'monospace', color: '#ccc' }}>{f.uuid_fiscal || '--'}</span></div>
+          <div style={{ color: '#888', wordBreak: 'break-all' as const }}>UUID: <span style={{ fontFamily: 'monospace', color: '#ccc' }}>{f.uuid_fiscal || '--'}</span></div>
           <div style={{ marginTop: 6, color: '#888' }}>Emisor: <span style={{ color: '#fff' }}>{f.emisor_nombre}</span> ({f.emisor_rfc})</div>
           <div style={{ color: '#888' }}>Receptor: <span style={{ color: '#fff' }}>{f.receptor_nombre}</span> ({f.receptor_rfc})</div>
         </div>
@@ -1076,14 +1136,14 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
             <span style={{ color: dirColor }}>${totalNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {f.moneda}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {hasFacturapiId ? (
-            <button onClick={props.onPdf} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#a78bfa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar PDF</button>
+            <button onClick={props.onPdf} style={{ flex: isMobile ? 1 : 'initial', padding: isMobile ? '12px 14px' : '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#a78bfa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar PDF</button>
           ) : null}
           {hasFacturapiId ? (
-            <button onClick={props.onXml} style={{ padding: '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar XML</button>
+            <button onClick={props.onXml} style={{ flex: isMobile ? 1 : 'initial', padding: isMobile ? '12px 14px' : '8px 14px', background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Descargar XML</button>
           ) : null}
-          <button onClick={props.onClose} style={{ padding: '8px 14px', background: '#10B981', border: 'none', borderRadius: 8, color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
+          <button onClick={props.onClose} style={{ flex: isMobile ? '1 1 100%' : 'initial', padding: isMobile ? '12px 14px' : '8px 14px', background: '#10B981', border: 'none', borderRadius: 8, color: '#000', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cerrar</button>
         </div>
       </div>
     </div>
@@ -1094,6 +1154,7 @@ function DetalleModal(props: { factura: Factura; conceptos: any[]; loading: bool
 // Lista de Facturas Emitidas
 // ============================================================
 function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: (f: Factura) => void }) {
+  const isMobile = useIsMobile()
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -1467,7 +1528,7 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
       doc.text('Este documento es una vista previa y NO tiene validez fiscal. No ha sido timbrado ante el SAT.', w / 2, h - 10, { align: 'center' })
 
       const fileName = `Borrador_${f.serie || 'SIN'}-${f.folio || '000'}_${f.receptor_nombre?.replace(/\s+/g, '_').slice(0, 30) || 'cliente'}.pdf`
-      doc.save(fileName)
+      await guardarBlob(doc.output('blob'), fileName)
     } catch (err: any) {
       alert('Error al generar PDF: ' + (err.message || err))
     }
@@ -1621,34 +1682,22 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
   return (
     <div>
       {/* Navegador mensual (Sesion B) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>◀ Mes anterior</button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
-          <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
-          {monthOffset !== 0 && (
-            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
-          )}
-        </div>
-        <div style={{ fontSize: 11, color: '#666' }}>
-          {facturasMes.length} factura{facturasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}
-        </div>
-      </div>
+      <NavegadorMes etiqueta={monthLabelCapitalized} offset={monthOffset} onCambiar={setMonthOffset} resumen={<>{facturasMes.length} factura{facturasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}</>} />
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : 1, maxWidth: isMobile ? 'none' : 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por cliente, RFC, UUID o folio..." style={{
-            width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e',
-            borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box'
+            width: '100%', padding: isMobile ? '10px 12px 10px 34px' : '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e',
+            borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box'
           }} />
         </div>
         <button onClick={sincronizar} disabled={syncing} style={{
-          padding: '8px 14px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8,
+          flex: isMobile ? 1 : 'initial', justifyContent: 'center', padding: '8px 14px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8,
           fontSize: 12, fontWeight: 600, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6
         }}>
           {syncing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
-          {syncing ? 'Sincronizando...' : 'Sincronizar con FacturAPI'}
+          {syncing ? 'Sincronizando...' : isMobile ? 'Sincronizar' : 'Sincronizar con FacturAPI'}
         </button>
       </div>
 
@@ -1667,6 +1716,34 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
               <Plus size={12} /> Nueva factura
             </button>
           )}
+        </div>
+      ) : isMobile ? (
+        <div>
+          {filtered.map(f => {
+            const borrador = f.status === 'borrador' && !f.facturapi_id
+            const canDelete = f.status === 'borrador' || f.status === 'cancelada' || f.status === 'error'
+            const canCancel = f.status === 'timbrada' && f.facturapi_id
+            return (
+              <TarjetaFactura key={f.id} f={f}
+                contraparte={f.receptor_nombre} rfc={f.receptor_rfc} colorTotal="#10B981"
+                acciones={(borrador || f.facturapi_id || canDelete) ? (
+                  <>
+                    {borrador && onEditar && <button onClick={() => onEditar(f)} style={btnAccion('#2563EB')}>Editar</button>}
+                    {borrador && (
+                      <button onClick={() => timbrarBorrador(f)} disabled={timbrandoId === f.id} style={btnAccion('#10B981')}>
+                        {timbrandoId === f.id ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Timbrando...</> : 'Timbrar'}
+                      </button>
+                    )}
+                    {borrador && <button onClick={() => descargarPdfBorrador(f)} style={btnAccion('#D97706')}><Download size={13} /> PDF borrador</button>}
+                    {f.facturapi_id && <button onClick={() => guardarFactura(f, 'pdf')} style={btnAccion('#A78BFA')}><Download size={13} /> PDF</button>}
+                    {f.facturapi_id && <button onClick={() => guardarFactura(f, 'xml')} style={btnAccion('#60A5FA')}><Download size={13} /> XML</button>}
+                    {canCancel && <button onClick={() => setShowCancelModal(f)} disabled={cancelando === f.id} style={btnAccion('#D97706')}><Ban size={13} /> Cancelar</button>}
+                    {canDelete && <button onClick={() => eliminarLocal(f)} title="Eliminar del listado local" style={{ ...btnAccion('#DC2626'), marginLeft: 'auto' }}><Trash2 size={13} /></button>}
+                  </>
+                ) : null}
+              />
+            )
+          })}
         </div>
       ) : (
         <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
@@ -1721,8 +1798,8 @@ function ListaEmitidas({ onNueva, onEditar }: { onNueva: () => void; onEditar?: 
                       {f.status === 'borrador' && !f.facturapi_id && (
                         <button onClick={() => descargarPdfBorrador(f)} style={{ background: 'none', border: 'none', color: '#D97706', cursor: 'pointer', padding: 0, fontSize: 10, fontWeight: 600, fontFamily: 'inherit' }}>PDF</button>
                       )}
-                      {f.facturapi_id && <a href={`/api/facturapi?action=download_pdf&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>PDF</a>}
-                      {f.facturapi_id && <a href={`/api/facturapi?action=download_xml&mode=${(f as any).sandbox ? 'test' : 'live'}&id=${f.facturapi_id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 10, textDecoration: 'none' }}>XML</a>}
+                      {f.facturapi_id && <button onClick={() => guardarFactura(f, 'pdf')} style={{ background: 'none', border: 'none', color: '#A78BFA', fontSize: 10, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>PDF</button>}
+                      {f.facturapi_id && <button onClick={() => guardarFactura(f, 'xml')} style={{ background: 'none', border: 'none', color: '#A78BFA', fontSize: 10, cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>XML</button>}
                       {canCancel && (
                         <button onClick={() => setShowCancelModal(f)} disabled={cancelando === f.id} title="Cancelar CFDI en SAT" style={{ background: 'none', border: 'none', color: '#D97706', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
                           <Ban size={13} />
@@ -2980,13 +3057,15 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
           <div><span style={{ color: '#666' }}>Total:</span> <span style={{ color: '#10B981', fontWeight: 600 }}>{(resultado.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {resultado.currency}</span></div>
           <div><span style={{ color: '#666' }}>Status:</span> <span style={{ color: '#10B981' }}>{resultado.status}</span></div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <a href={`/api/facturapi?action=download_pdf&mode=${getCurrentFacturapiMode()}&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Download size={12} /> Descargar PDF
-          </a>
-          <a href={`/api/facturapi?action=download_xml&mode=${getCurrentFacturapiMode()}&id=${resultado.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Download size={12} /> Descargar XML
-          </a>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {(['pdf', 'xml'] as const).map(ext => (
+            <button key={ext} onClick={() => {
+              guardarDesdeUrl(urlFacturaApi(resultado.id, getCurrentFacturapiMode() === 'test' ? 'test' : 'live', ext), nombreSeguro('Factura ' + (resultado.series || '') + (resultado.folio_number || '')) + '.' + ext)
+                .catch((e: any) => alert('No se pudo descargar: ' + (e?.message || e)))
+            }} style={{ padding: '8px 14px', background: '#1e1e1e', color: '#A78BFA', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Download size={12} /> Descargar {ext.toUpperCase()}
+            </button>
+          ))}
           <button onClick={onCreated} style={{ padding: '8px 14px', background: '#10B981', color: '#000', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
             Volver al listado
           </button>
@@ -3716,6 +3795,7 @@ function NuevaFactura({ onCancel, onCreated, editingFactura }: { onCancel: () =>
 // Lista Recibidas
 // ============================================================
 function ListaRecibidas() {
+  const isMobile = useIsMobile()
   const [recibidas, setRecibidas] = useState<Factura[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -3843,29 +3923,17 @@ function ListaRecibidas() {
   return (
     <div>
       {/* Navegador mensual */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '10px 14px', background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => setMonthOffset(monthOffset - 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>◀ Mes anterior</button>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', minWidth: 160, textAlign: 'center' as const }}>{monthLabelCapitalized}</span>
-          <button onClick={() => setMonthOffset(monthOffset + 1)} style={{ padding: '6px 10px', fontSize: 12, background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ccc', cursor: 'pointer', fontFamily: 'inherit' }}>Mes siguiente ▶</button>
-          {monthOffset !== 0 && (
-            <button onClick={() => setMonthOffset(0)} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(87,255,154,0.08)', border: '1px solid rgba(87,255,154,0.3)', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
-          )}
-        </div>
-        <div style={{ fontSize: 11, color: '#666' }}>
-          {recibidasMes.length} factura{recibidasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}
-        </div>
-      </div>
+      <NavegadorMes etiqueta={monthLabelCapitalized} offset={monthOffset} onCambiar={setMonthOffset} resumen={<>{recibidasMes.length} factura{recibidasMes.length !== 1 ? 's' : ''} en {monthLabelCapitalized}</>} />
 
       {/* Search bar + sync */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#555' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por proveedor, RFC, UUID o folio..." style={{ width: '100%', padding: '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : 1, maxWidth: isMobile ? 'none' : 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por proveedor, RFC, UUID o folio..." style={{ width: '100%', padding: isMobile ? '10px 12px 10px 34px' : '8px 12px 8px 32px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const }} />
         </div>
-        <button onClick={sincronizar} disabled={syncing} style={{ padding: '8px 14px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+        <button onClick={sincronizar} disabled={syncing} style={{ flex: isMobile ? 1 : 'initial', justifyContent: 'center', padding: '8px 14px', background: '#1e1e1e', color: '#ccc', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: syncing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
           {syncing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
-          {syncing ? 'Sincronizando...' : 'Sincronizar con FacturAPI'}
+          {syncing ? 'Sincronizando...' : isMobile ? 'Sincronizar' : 'Sincronizar con FacturAPI'}
         </button>
       </div>
 
@@ -3876,6 +3944,12 @@ function ListaRecibidas() {
           <FileText size={32} style={{ color: '#333', marginBottom: 12 }} />
           <div style={{ fontSize: 14, marginBottom: 6 }}>{search ? 'Sin resultados' : 'No hay facturas recibidas en ' + monthLabelCapitalized}</div>
           <div style={{ fontSize: 12, color: '#444' }}>Da click en "Sincronizar con FacturAPI" para traer las facturas del SAT</div>
+        </div>
+      ) : isMobile ? (
+        <div>
+          {filtered.map(f => (
+            <TarjetaFactura key={f.id} f={f} contraparte={f.emisor_nombre} rfc={f.emisor_rfc} colorTotal="#D97706" />
+          ))}
         </div>
       ) : (
         <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>

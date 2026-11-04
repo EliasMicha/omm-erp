@@ -3941,3 +3941,17 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
   - Rango = `{ desde: mesSel, hasta: mesSel }`; se compara contra el mes anterior ("vs mes anterior" en los KPIs cuando `nMeses === 1`); las gráficas muestran los 12 meses que terminan en el mes elegido. Aplica a Resumen, Flujo y Por área; Cartera y CxP siguen siendo "hoy".
   - `PRIMER_MES = '2025-01'`: desde ahí hay banco completo (nómina, gastos, impuestos). 2024 solo trae venta, cobranza y proveedores, por eso no se ofrece. No se puede pasar del mes en curso.
 - Sin cambios en BD (usa la misma RPC `finanzas_tablero`).
+
+### 2026-11-03 — Facturación y Conciliación en celular + guardar PDF en iPhone
+- **Bug "veo la factura pero no la puedo guardar"**: en iPhone el ERP corre como app de inicio (PWA, `display: standalone`). Ahí `<a target="_blank">` / `window.open` al PDF abre un visor sin botón de compartir, y `<a download>` no hace nada.
+  - Nuevo `src/lib/guardarArchivo.ts`: `guardarBlob`, `guardarDesdeUrl`, `guardarFactura(f, 'pdf'|'xml')`, `urlFacturaApi`, `nombreFactura`, `nombreSeguro`. En celular baja el archivo con fetch y abre la hoja de compartir (`navigator.share({ files })` → "Guardar en Archivos", WhatsApp, Mail). En computadora descarga normal.
+  - Si Safari ya venció el permiso del toque (NotAllowedError, la descarga tardó), sale una hoja "Archivo listo → Guardar / compartir" y el siguiente toque abre la hoja del sistema.
+  - Nombre del archivo: `Factura A102 DESARROLLOS CHAC MOOL.pdf` (antes `factura-<id facturapi>.pdf`).
+  - Aplicado en: Facturación (Todas, Emitidas, detalle, factura recién timbrada, ZIP del mes, PDF de borrador con jsPDF) y Contabilidad → Facturación (modal de la factura). **Regla: cualquier descarga nueva usa `guardarBlob`/`guardarDesdeUrl`, nunca window.open ni `<a download>` directo.**
+- **Facturación móvil** (`Facturacion.tsx`): título libre del botón de menú (paddingLeft 50), banner LIVE/TEST en una línea, `NavegadorMes` compacto, buscador a todo el ancho (16px para que iOS no haga zoom) y botones "Sincronizar" / "PDF + XML (ZIP)"; las 3 listas son **tarjetas** en celular (`TarjetaFactura`, botones PDF/XML/Timbrar/Editar/Cancelar/Eliminar). Detalle a pantalla completa por encima del botón de menú.
+- **Conciliación móvil** (`Contabilidad.tsx` / TabConciliacion): `NavegadorMes` con los 4 botones (Vista general, Reporte, Estado de cuenta proveedor, Excel) en su propio renglón (antes se salían y la página scrolleaba de lado: 486px en un iPhone de 390). Cada movimiento es una **tarjeta**: fecha, monto ±, concepto completo, beneficiario, proyecto, naturaleza, vincular y conciliar; tocar el concepto abre el mismo detalle. Escritorio sin cambios: las celdas se comparten (`cBenef`, `cProy`, `cCat`, `cMatch`, `cBoton`).
+  - `Table` acepta `minWidth={0}` en celular; el `thead` se oculta (los filtros por columna son solo de escritorio).
+  - Modal de Contabilidad: zIndex 1150 en celular (el botón de menú es 1100) y `boxSizing: border-box`.
+- **Global**: `SectionHeader` (UI.tsx) deja 50px a la izquierda en celular para el botón de menú fijo; arregla el título tapado en las ~28 páginas que lo usan. Pestañas de Contabilidad sin partirse en renglones.
+- Nuevo componente `src/components/layout/NavegadorMes.tsx` (‹ mes › + "Hoy" + resumen + acciones).
+- Sin cambios en BD ni en `api/`.
