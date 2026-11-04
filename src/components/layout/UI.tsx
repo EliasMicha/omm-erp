@@ -35,13 +35,15 @@ export function KpiCard({ label, value, color = '#10B981', icon }: {
 }
 
 // ── Table ────────────────────────────────────────────────────────────────────
-export function Table({ children, minWidth }: { children: ReactNode; minWidth?: number }) {
+// fijo: el texto largo con "…" no ensancha la tabla (útil en celular, con un
+// solo <td colSpan> por renglón).
+export function Table({ children, minWidth, fijo }: { children: ReactNode; minWidth?: number; fijo?: boolean }) {
   return (
     <div style={{
       border: '1px solid #222', borderRadius: 12, position: 'relative',
       overflowX: 'auto', WebkitOverflowScrolling: 'touch' as const, maxWidth: '100%',
     }}>
-      <table style={{ width: '100%', minWidth: minWidth ?? 720, borderCollapse: 'collapse' }}>
+      <table style={{ width: '100%', minWidth: minWidth ?? 720, borderCollapse: 'collapse', tableLayout: fijo ? 'fixed' : undefined }}>
         {children}
       </table>
     </div>

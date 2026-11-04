@@ -252,6 +252,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
   selected?: boolean; onToggleSelect?: (id: string) => void; onSubstitute?: (p: EspProduct) => void
 }) {
   const { moneda: monedaCot, tc } = useContext(MonedaCot)
+  const isMobile = useIsMobile()
   const { precioAmp, moAmp, total, costReal, utilidad } = calcLine(p, monedaCot, tc)
   const sinTC = faltaTC(p, monedaCot, tc)
   const handleBlur = (field: string, value: number) => {
@@ -262,6 +263,33 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
       }
     }
   }
+  // Celular: un renglón compacto solo para ver. Para cambiar algo se toca y
+  // se abre el detalle (ProductDetailModal), que en celular trae los campos.
+  // La tabla de 11 columnas medía ~900px y escondía precio y total.
+  if (isMobile) {
+    return (
+      <tr onClick={() => onDetail?.(p)} style={{ background: selected ? '#10B9810D' : undefined, cursor: 'pointer' }}>
+        <td colSpan={20} style={{ padding: '8px 4px', borderBottom: '1px solid #1a1a1a' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {p.imageUrl ? <img src={p.imageUrl} alt="" style={{ width: 30, height: 30, objectFit: 'contain', borderRadius: 4, flexShrink: 0 }} />
+              : <div style={{ width: 30, height: 30, background: '#1a1a1a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ImageIcon size={11} color="#333" /></div>}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#ddd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                {p.isService && <span style={{ color: '#D97706' }}>Servicio · </span>}{p.name}
+              </div>
+              <div style={{ fontSize: 11, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: 1 }}>
+                <span style={{ color: '#bbb', fontWeight: 600 }}>{p.quantity}</span> × ${fmt(p.price)}
+                {!p.isService && p.laborCost ? ' · M.O. $' + fmt(p.laborCost) : ''}
+                {showInt ? <span style={{ color: p.margin >= 25 ? '#10B981' : p.margin >= 15 ? '#D97706' : '#DC2626' }}>{' · MG ' + p.margin + '%'}</span> : null}
+              </div>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981', whiteSpace: 'nowrap' as const }}>${fmt(total)}</span>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
   return (
     <tr style={{ background: selected ? '#10B9810D' : undefined }}>
       {onToggleSelect && (
@@ -346,7 +374,7 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
   const gridCell: React.CSSProperties = { ...cellStyle, flex: 1, minWidth: 0 }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: isMobile ? 1150 : 1050 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#111', borderRadius: isMobile ? 0 : 14, width: isMobile ? '100vw' : 520, maxHeight: isMobile ? '100vh' : '85vh', height: isMobile ? '100vh' : 'auto', overflow: 'auto', border: '1px solid #333', margin: 0 }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: isMobile ? 10 : 14, padding: isMobile ? '14px 14px 10px' : '18px 20px 14px', borderBottom: '1px solid #222' }}>
@@ -364,7 +392,32 @@ function ProductDetailModal({ product, onClose, onUpdate }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}><X size={16} color="#555" /></button>
         </div>
 
-        <div style={{ padding: '12px 20px 20px' }}>
+        <div style={{ padding: isMobile ? '12px 14px 24px' : '12px 20px 20px' }}>
+          {/* Celular: los campos que se cambian, arriba y grandes */}
+          {isMobile && (
+            <div style={{ marginBottom: 14, padding: 12, background: '#0b0b0b', border: '1px solid #222', borderRadius: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: product.isService ? '1fr 1fr' : '1fr 1fr 1fr', gap: 8 }}>
+                <label><div style={labelStyle}>Cantidad</div>
+                  <input key={'q' + product.id + product.quantity} type="number" inputMode="numeric" min={1} defaultValue={product.quantity}
+                    onBlur={e => { const v = parseInt(e.target.value) || 1; if (v !== product.quantity) onUpdate(product.id, 'quantity', v) }}
+                    style={{ ...S.input, width: '100%', boxSizing: 'border-box' as const, padding: '9px 8px', fontSize: 16 }} /></label>
+                <label><div style={labelStyle}>Precio</div>
+                  <input key={'p' + product.id + product.price} type="number" inputMode="decimal" step={0.01} defaultValue={product.price}
+                    onBlur={e => { const v = parseFloat(e.target.value) || 0; if (v !== product.price) onUpdate(product.id, 'price', v) }}
+                    style={{ ...S.input, width: '100%', boxSizing: 'border-box' as const, padding: '9px 8px', fontSize: 16 }} /></label>
+                {!product.isService && (
+                  <label><div style={labelStyle}>M.O.</div>
+                    <input key={'m' + product.id + product.laborCost} type="number" inputMode="decimal" step={0.01} defaultValue={product.laborCost}
+                      onBlur={e => { const v = parseFloat(e.target.value) || 0; if (v !== product.laborCost) onUpdate(product.id, 'laborCost', v) }}
+                      style={{ ...S.input, width: '100%', boxSizing: 'border-box' as const, padding: '9px 8px', fontSize: 16 }} /></label>
+                )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10 }}>
+                <span style={{ fontSize: 11, color: '#777' }}>Se guarda al salir del campo</span>
+                <span style={{ fontSize: 12, color: '#888' }}>Total <span style={{ fontSize: 17, fontWeight: 700, color: '#10B981' }}>${fmt(total)}</span></span>
+              </div>
+            </div>
+          )}
           {/* Product Info */}
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
             <div style={gridCell}><div style={labelStyle}>Proveedor</div><div style={valueStyle}>{provider}</div></div>
@@ -479,6 +532,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
 }) {
   const sysTotal = products.reduce((s, p) => s + calcLine(p).total, 0)
   const [editingSysNote, setEditingSysNote] = useState(false)
+  const isMobile = useIsMobile()
   return (
     <div style={{ marginBottom: 10 }}>
       <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', background: '#111', borderRadius: 6, marginBottom: 2 }}>
@@ -489,8 +543,8 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>${fmt(sysTotal)}</span>
       </div>
       {/* Nota del sistema dentro del área */}
-      {!collapsed && onUpdateNote && (
-        <div style={{ margin: '0 0 6px 16px', padding: '4px 8px', background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 5 }}>
+      {!collapsed && onUpdateNote && (!isMobile || !!note) && (
+        <div style={{ margin: isMobile ? '0 0 4px 0' : '0 0 6px 16px', padding: '4px 8px', background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 5 }}>
           {editingSysNote ? (
             <textarea
               defaultValue={note || ''}
@@ -511,8 +565,8 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
         </div>
       )}
       {!collapsed && (<>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr style={{ background: '#0e0e0e' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isMobile ? 'fixed' as const : undefined }}>
+          <thead style={isMobile ? { display: 'none' } : undefined}><tr style={{ background: '#0e0e0e' }}>
             {onToggleSelect && (
               <th style={{ ...S.th, width: 28, textAlign: 'center', padding: '6px 4px' }}>
                 <input type="checkbox"
@@ -542,7 +596,7 @@ function SystemBlock({ sysDef, products, collapsed, onToggle, onUpdate, onRemove
             })}
           </tbody>
         </table>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6 }}>
             <Btn size="sm" onClick={onAdd}><Plus size={12} /> Producto</Btn>
             <Btn size="sm" onClick={onAddService} style={{ background: '#D9770622', color: '#D97706', border: '1px solid #D9770644' }}><Plus size={12} /> Servicio</Btn>
@@ -577,17 +631,18 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
   const areaTotal = areaProds.reduce((s, p) => s + (noSuma.includes(p.systemId) ? 0 : calcLine(p).total), 0)
   const sysWithProds = activeSystems.filter(sys => areaProds.some(p => p.systemId === sys.id))
   const sysEmpty = activeSystems.filter(sys => !areaProds.some(p => p.systemId === sys.id))
+  const isMobile = useIsMobile()
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #10B981' }}>
-        <div onClick={onToggleArea} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, cursor: 'pointer' }}>
-          {area.collapsed ? <ChevronRight size={16} color="#10B981" /> : <ChevronDown size={16} color="#10B981" />}
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#fff', flex: 1, textTransform: 'uppercase' as const }}>{area.name}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, padding: isMobile ? '8px 8px 8px 10px' : '9px 14px', cursor: 'pointer', background: '#1a1a1a', borderRadius: 10, borderLeft: '3px solid #10B981' }}>
+        <div onClick={onToggleArea} style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flex: 1, minWidth: 0, cursor: 'pointer' }}>
+          {area.collapsed ? <ChevronRight size={16} color="#10B981" style={{ flexShrink: 0 }} /> : <ChevronDown size={16} color="#10B981" style={{ flexShrink: 0 }} />}
+          <span style={{ fontSize: isMobile ? 12 : 14, fontWeight: 700, color: '#fff', flex: 1, minWidth: 0, textTransform: 'uppercase' as const, lineHeight: 1.3 }}>{area.name}</span>
         </div>
-        <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#10B981' }}>${fmt(areaTotal)}</span>
-        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 0, marginLeft: 4 }}>
+        {!isMobile && <span style={{ fontSize: 10, color: '#555' }}>{sysWithProds.length} sistemas</span>}
+        <span style={{ fontSize: isMobile ? 13 : 14, fontWeight: 700, color: '#10B981', whiteSpace: 'nowrap' as const }}>${fmt(areaTotal)}</span>
+        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 0, marginLeft: isMobile ? 0 : 4 }}>
           {onMoveUp && <button onClick={(e) => { e.stopPropagation(); onMoveUp() }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 3px', lineHeight: 1, fontSize: 10 }} title="Mover arriba">▲</button>}
           {onMoveDown && <button onClick={(e) => { e.stopPropagation(); onMoveDown() }} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 3px', lineHeight: 1, fontSize: 10 }} title="Mover abajo">▼</button>}
         </div>
@@ -598,9 +653,9 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
         )}
       </div>
       {!area.collapsed && (
-        <div style={{ paddingLeft: 14, paddingTop: 6 }}>
+        <div style={{ paddingLeft: isMobile ? 0 : 14, paddingTop: 6 }}>
           {/* Nota del área — toggleable */}
-          {onUpdateAreaNotes && (
+          {onUpdateAreaNotes && (!isMobile || !!area.notes) && (
             <div style={{ marginBottom: 8, padding: '6px 10px', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6 }}>
               {editingNote ? (
                 <textarea
@@ -642,9 +697,9 @@ function AreaBlock({ area, activeSystems, products, allProducts, collapsedSys, o
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 12px', borderTop: '1px solid #1e1e1e', marginTop: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#555', marginRight: 12 }}>{area.name.toUpperCase()} TOTAL</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>${fmt(areaTotal)}</span>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 12, padding: '6px 12px', borderTop: '1px solid #1e1e1e', marginTop: 6 }}>
+            <span style={{ fontSize: isMobile ? 10 : 11, fontWeight: 700, color: '#555', textAlign: 'right' as const, minWidth: 0 }}>{(isMobile ? 'TOTAL DEL ÁREA' : area.name.toUpperCase() + ' TOTAL')}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' as const }}>${fmt(areaTotal)}</span>
           </div>
         </div>
       )}
@@ -3224,10 +3279,12 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     <MonedaCot.Provider value={{ moneda: config.currency, tc: Number(config.tipoCambio) || 0 }}>
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{ padding: isMobile ? '7px 12px' : '7px 16px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: isMobile ? 10 : 12 }}><ChevronLeft size={isMobile ? 12 : 14} /> {isMobile ? '' : 'Cotizaciones'}</button>
+      <div style={{ padding: isMobile ? '8px 12px 8px 60px' : '7px 16px', minHeight: isMobile ? 40 : undefined, borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
+        {/* En celular el botón de menú fijo tapaba el "‹" de regresar: la barra deja 60px libres */}
+        <button onClick={onBack} aria-label="Regresar a cotizaciones" style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: isMobile ? 10 : 12, padding: isMobile ? '4px 2px' : undefined, order: isMobile ? -2 : undefined }}><ChevronLeft size={isMobile ? 18 : 14} /> {isMobile ? '' : 'Cotizaciones'}</button>
         {!isMobile && <span style={{ color: '#333' }}>/</span>}
-        <span style={{ fontSize: isMobile ? 10 : 12, fontWeight: 500, color: '#10B981', cursor: 'pointer' }} onClick={() => setShowEditCot(true)}>◈ {isMobile ? (cotName || 'Cot').slice(0, 10) : (cotName || 'Cotización ESP')}</span>
+        <span style={{ fontSize: isMobile ? 12 : 12, fontWeight: 500, color: '#10B981', cursor: 'pointer', ...(isMobile ? { flex: '1 1 0', order: -1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, minWidth: 0 } : {}) }} onClick={() => setShowEditCot(true)}>◈ {cotName || 'Cotización ESP'}</span>
+        {isMobile && <div style={{ flexBasis: '100%', height: 0, order: -1 }} />}
         <FolioChip folio={folio} prefijo={prefijoFolio(stage)} size={isMobile ? 9 : 10.5} />
         <Badge label="ESP" color="#10B981" />
         {!isMobile && clientName && <span style={{ fontSize: 11, color: '#888' }}>{clientName}</span>}
@@ -3317,7 +3374,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           {!isMobile && <span style={{ fontSize: 9, color: '#555' }}>TC:</span>}
           <input type="number" value={config.tipoCambio} step={0.1}
             onChange={e => updateConfig('tipoCambio', parseFloat(e.target.value) || 20)}
-            style={{ width: isMobile ? 45 : 55, padding: '2px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: 10, fontFamily: 'inherit', textAlign: 'right' }} />
+            style={{ width: isMobile ? 58 : 55, padding: isMobile ? '4px 6px' : '2px 6px', background: '#1a1a1a', border: '1px solid #333', borderRadius: 4, color: '#ccc', fontSize: isMobile ? 12 : 10, fontFamily: 'inherit', textAlign: 'right' }} />
           <button onClick={convertQuoteCurrency}
             title={config.currency === 'MXN' ? 'Revertir a USD dividiendo entre el TC' : 'Multiplicar todo por el TC y fijar la cotización en pesos'}
             style={{ padding: isMobile ? '2px 6px' : '2px 9px', fontSize: isMobile ? 8 : 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap', borderRadius: 5, border: '1px solid ' + (config.currency === 'MXN' ? '#06B6D455' : '#D9770655'), background: config.currency === 'MXN' ? '#06B6D418' : '#D9770618', color: config.currency === 'MXN' ? '#06B6D4' : '#D97706' }}>
@@ -3369,7 +3426,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
                   gap: 5,
                 }}
               >
-                <span>{isMobile ? area.name.slice(0, 8) : area.name}</span>
+                <span style={isMobile ? { maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' } : undefined}>{isMobile ? area.name.split(/\s+[—–-]\s+/)[0] : area.name}</span>
                 <span style={{ fontSize: 8, color: active ? '#10B981' : '#666', fontWeight: 500 }}>{(config.currency === 'MXN' ? '$' : 'US$') + areaTot.toFixed(0)}</span>
               </button>
             )
@@ -3614,7 +3671,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
 
       {/* Product detail modal */}
       {detailProduct && (
-        <ProductDetailModal product={detailProduct} onClose={() => setDetailProduct(null)} onUpdate={updateProduct} />
+        <ProductDetailModal product={products.find(x => x.id === detailProduct.id) || detailProduct} onClose={() => setDetailProduct(null)} onUpdate={updateProduct} />
       )}
 
       {/* Substitute product modal — reuses CatalogModal */}

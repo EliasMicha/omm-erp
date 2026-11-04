@@ -3955,3 +3955,14 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Global**: `SectionHeader` (UI.tsx) deja 50px a la izquierda en celular para el botón de menú fijo; arregla el título tapado en las ~28 páginas que lo usan. Pestañas de Contabilidad sin partirse en renglones.
 - Nuevo componente `src/components/layout/NavegadorMes.tsx` (‹ mes › + "Hoy" + resumen + acciones).
 - Sin cambios en BD ni en `api/`.
+
+### 2026-11-04 — Celular: "ver, no operar" (Cotizador Especiales + Conciliación compactos)
+- **Criterio de Elias para celular:** "no necesito toda la funcionalidad en el teléfono, sino poder ver la info". Renglón compacto de solo lectura; si hay que cambiar algo, se toca y se abre un modal con los campos. Aplicar este patrón a cualquier pantalla nueva en móvil.
+- **Cotizador ESP** (`CotEditorESP.tsx`):
+  - `ProductRow` en celular = 1 renglón: imagen chica, nombre con "…", `cant × precio · M.O. · MG%` y total. Tocarlo abre `ProductDetailModal`, que en celular trae **Cantidad / Precio / M.O.** editables (se guardan al salir del campo) y recibe el producto vivo (`products.find(...)`, antes una copia vieja).
+  - Tabla de sistema con `tableLayout: fixed` y sin `thead` en celular (antes medía ~917px en un iPhone de 390 → precio y total fuera de pantalla e iOS agrandaba el texto).
+  - Barra superior: 60px libres a la izquierda para el botón de menú (tapaba el "‹" de regresar); renglón 1 = ‹ + nombre completo. Chips de área muestran "Departamento tipo 01" (parte antes del "—") en vez de "Departam". TC legible. Encabezado de área compacto. Notas vacías de área/sistema ocultas en celular.
+  - ProductDetailModal zIndex 1150 en celular (encima del botón de menú, 1100).
+- **Conciliación**: renglón compacto (fecha dd/mm, beneficiario, monto ±, concepto en 1 línea, categoría, proyecto, conciliado/pendiente). Tocar abre la fila expandida como **hoja a pantalla completa** (fixed dentro del `<td>`), con beneficiario, proyecto, categoría, Conciliar y todo el detalle de facturas vinculadas / asignación. Resumen por proyecto en una fila deslizable.
+  - `Table` (UI.tsx) acepta `fijo` → `tableLayout: fixed`, para que un texto con "…" no ensanche la tabla.
+- Gotcha: en una tabla con `table-layout: auto`, `white-space: nowrap` + `text-overflow: ellipsis` NO recorta: la celda crece. En celular usar `tableLayout: 'fixed'`.

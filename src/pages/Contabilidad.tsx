@@ -4015,9 +4015,9 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
 
       {/* Project summary bar */}
       {bankMovements.length > 0 && projectMap.size > 1 && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : undefined, WebkitOverflowScrolling: 'touch' as const }}>
           {Array.from(projectMap.entries()).filter(([k]) => k !== 'Sin proyecto').sort((a, b) => b[1].count - a[1].count).slice(0, 8).map(([proy, d]) => (
-            <div key={proy} style={{ background: '#141414', border: '1px solid #222', borderRadius: 8, padding: '6px 10px', fontSize: 11 }}>
+            <div key={proy} style={{ background: '#141414', border: '1px solid #222', borderRadius: 8, padding: '6px 10px', fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}>
               <span style={{ color: '#fff', fontWeight: 600 }}>{proy}</span>
               <span style={{ color: '#666', marginLeft: 6 }}>{d.count} mov</span>
               {d.abonos > 0 && <span style={{ color: '#10B981', marginLeft: 6 }}>+{F(d.abonos)}</span>}
@@ -4031,7 +4031,7 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
       {bankMovements.length === 0 ? (
         <EmptyState message="Sube un estado de cuenta (PDF de BBVA/Banorte, CSV o Excel) para iniciar la conciliación automática" />
       ) : (
-        <Table minWidth={isMobile ? 0 : undefined}>
+        <Table minWidth={isMobile ? 0 : undefined} fijo={isMobile}>
           <thead style={isMobile ? { display: 'none' } : undefined}><tr>
             <Th><input type="checkbox" checked={allSelected} onChange={toggleAll} style={chkStyle} /></Th>
             <Th>Fecha</Th>
@@ -4168,20 +4168,33 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
               return (
                 <React.Fragment key={m.id}>
 {isMobile ? (
-                  <tr style={{ opacity: m.conciliado ? 0.55 : 1, background: selected.has(m.id) ? 'rgba(87,255,154,0.04)' : undefined }}>
-                    <td colSpan={10} style={{ padding: '12px 12px', borderBottom: '1px solid #1a1a1a' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggleOne(m.id)} style={chkStyle} />
-                        <span style={{ fontSize: 11, color: '#777' }}>{m.fecha}</span>
-                        {m.conciliado && <span style={{ fontSize: 10, color: '#22c55e', fontWeight: 600 }}>✓ conciliado</span>}
-                        <span style={{ marginLeft: 'auto', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', color: m.tipo === 'cargo' ? '#DC2626' : '#10B981' }}>{m.tipo === 'cargo' ? '−' : '+'}{F(m.monto)}</span>
-                      </div>
-                      <div onClick={() => setExpandedId(isExpanded ? null : m.id)} style={{ fontSize: 13, color: '#ddd', marginTop: 6, lineHeight: 1.35, wordBreak: 'break-word', cursor: 'pointer' }}>{m.concepto}</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 }}>{cBenef}{cProy}</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                        {cCat}
-                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>{cMatch}{cBoton}</div>
-                      </div>
+                  // Celular: renglón compacto solo para ver. Al tocarlo se abre el
+                  // detalle a pantalla completa, donde se edita y se concilia.
+                  <tr onClick={() => setExpandedId(m.id)} style={{ opacity: m.conciliado ? 0.6 : 1, cursor: 'pointer' }}>
+                    <td colSpan={10} style={{ padding: '9px 10px', borderBottom: '1px solid #1a1a1a' }}>
+                      {(() => {
+                        const nat = NATURALEZA_OPTIONS.includes(m.categoria_sugerida || '') ? (m.categoria_sugerida as string) : 'otro'
+                        const colNat = catColors[nat] || '#555'
+                        const quien = m.beneficiario || m.proveedor || m.cliente || ''
+                        const proy = m.proyecto_sugerido || m.proyecto_codigo || ''
+                        const nLinks = getLinksForMov(m.id).length
+                        return (<>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            <span style={{ fontSize: 11, color: '#666', flexShrink: 0 }}>{m.fecha.slice(8, 10)}/{m.fecha.slice(5, 7)}</span>
+                            <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#e5e5e5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{quien || m.concepto}</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', color: m.tipo === 'cargo' ? '#DC2626' : '#10B981' }}>{m.tipo === 'cargo' ? '−' : '+'}{F(m.monto)}</span>
+                          </div>
+                          {quien && <div style={{ fontSize: 11, color: '#777', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.concepto}</div>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: colNat, flexShrink: 0 }} />
+                            <span style={{ color: colNat, fontWeight: 600 }}>{CATEGORIA_LABELS[nat] || nat}</span>
+                            {proy && <span style={{ color: '#60A5FA', overflow: 'hidden', textOverflow: 'ellipsis' }}>· {proy}</span>}
+                            <span style={{ marginLeft: 'auto', flexShrink: 0, color: m.conciliado ? '#22c55e' : '#555', fontWeight: 600 }}>
+                              {nLinks > 0 ? '🔗' + nLinks + ' ' : ''}{m.conciliado ? '✓ conciliado' : 'pendiente'}
+                            </span>
+                          </div>
+                        </>)
+                      })()}
                     </td>
                   </tr>
                   ) : (
@@ -4205,8 +4218,24 @@ function TabConciliacion({ bankMovements, setBankMovements, invoices, projectNam
                   {/* Expanded row */}
                   {isExpanded && (
                     <tr>
-                      <td colSpan={10} style={{ padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
-                      <div style={isMobile ? { position: 'sticky' as const, left: 0, width: 'calc(100vw - 40px)', boxSizing: 'border-box' as const } : undefined}>
+                      <td colSpan={10} style={isMobile ? { padding: 0, border: 'none' } : { padding: '8px 16px', background: '#0d0d0d', borderBottom: '1px solid #1a1a1a' }}>
+                      <div style={isMobile ? { position: 'fixed' as const, inset: 0, zIndex: 1150, background: '#0d0d0d', overflowY: 'auto' as const, padding: 'max(14px, env(safe-area-inset-top)) 14px 32px', boxSizing: 'border-box' as const } : undefined}>
+                      {isMobile && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                            <button onClick={() => setExpandedId(null)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontFamily: 'inherit' }}><X size={20} /> Cerrar</button>
+                            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#777' }}>{m.fecha}</span>
+                          </div>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: m.tipo === 'cargo' ? '#DC2626' : '#10B981' }}>{m.tipo === 'cargo' ? '−' : '+'}{F(m.monto)}</div>
+                          <div style={{ fontSize: 13, color: '#ddd', marginTop: 6, lineHeight: 1.4, wordBreak: 'break-word' }}>{m.concepto}</div>
+                          <div style={{ display: 'grid', gap: 10, marginTop: 14, padding: 12, background: '#141414', border: '1px solid #222', borderRadius: 10 }}>
+                            <div><div style={{ fontSize: 9, color: '#666', fontWeight: 600, letterSpacing: '0.06em', marginBottom: 4 }}>BENEFICIARIO</div>{cBenef}</div>
+                            <div><div style={{ fontSize: 9, color: '#666', fontWeight: 600, letterSpacing: '0.06em', marginBottom: 4 }}>PROYECTO</div>{cProy}</div>
+                            <div><div style={{ fontSize: 9, color: '#666', fontWeight: 600, letterSpacing: '0.06em', marginBottom: 4 }}>CATEGORÍA</div>{cCat}</div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{cBoton}</div>
+                          </div>
+                        </div>
+                      )}
                       {/* Match múltiple de facturas (many-to-many) */}
                       {(() => {
                         const isSavingMatch = savingMatch === m.id
