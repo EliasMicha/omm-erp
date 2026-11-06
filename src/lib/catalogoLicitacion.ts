@@ -46,6 +46,7 @@ const NOMBRE_ESPECIALIDAD: Record<string, string> = {
 }
 
 interface ItemDB {
+  notes?: string | null
   id: string; area_id: string | null; name: string | null; description: string | null
   system: string | null; type: string | null; quantity: number | null; price: number | null
   installation_cost: number | null
@@ -102,7 +103,7 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
   const [{ data: cot }, { data: areasRaw }, { data: itemsRaw }] = await Promise.all([
     supabase.from('quotations').select('id,name,specialty,notes,client_name,created_at,project:projects!quotations_project_id_fkey(name,client_name)').eq('id', cotId).single(),
     supabase.from('quotation_areas').select('id,name,order_index').eq('quotation_id', cotId).order('order_index'),
-    supabase.from('quotation_items').select('id,area_id,name,description,system,type,quantity,price,installation_cost,marca,modelo,sku,nomenclatura,order_index,provider').eq('quotation_id', cotId),
+    supabase.from('quotation_items').select('id,area_id,name,description,system,type,quantity,price,installation_cost,marca,modelo,sku,nomenclatura,order_index,provider,notes').eq('quotation_id', cotId),
   ])
   if (!cot) throw new Error('No se encontró la cotización')
   const items = (itemsRaw || []) as ItemDB[]
@@ -129,8 +130,21 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
   for (const a of (areasRaw || []) as any[]) areaNombre.set(a.id, a.name || 'Sin área')
 
   const esESP = (cot as any).specialty === 'esp'
+  // Sistemas custom de Especiales: el item queda con system='General' y el
+  // sistema real en notes.customSystemId → se resuelve al nombre que puso el usuario.
+  const nombreCustom = new Map<string, string>()
+  if (Array.isArray(meta.customSystems)) {
+    for (const cs of meta.customSystems) if (cs && typeof cs.id === 'string' && typeof cs.name === 'string') nombreCustom.set(cs.id, cs.name)
+  }
+  const sistemaDe = (it: ItemDB): string => {
+    try {
+      const n = JSON.parse(it.notes || '{}')
+      if (n && typeof n.customSystemId === 'string' && nombreCustom.has(n.customSystemId)) return nombreCustom.get(n.customSystemId) as string
+    } catch { /* notes libres */ }
+    return it.system || 'General'
+  }
   const claveGrupo = (it: ItemDB) => esESP
-    ? (it.system || 'General')
+    ? sistemaDe(it)
     : (it.area_id ? (areaNombre.get(it.area_id) || 'Sin área') : 'General')
 
   const grupos = new Map<string, ItemDB[]>()
@@ -147,7 +161,7 @@ export async function exportarCatalogoLicitacion(cotId: string, opts: OpcionesCa
     for (const it of items) {
       const v = (Number(it.installation_cost) || 0) * (Number(it.quantity) || 0)
       if (v > 0) {
-        const k = it.system || 'General'
+        const k = sistemaDe(it)
         instPorSistema.set(k, (instPorSistema.get(k) || 0) + v)
       }
     }

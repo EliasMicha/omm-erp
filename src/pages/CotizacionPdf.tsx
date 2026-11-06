@@ -54,6 +54,8 @@ interface ItemRow {
   installation_cost: number
   marca?: string | null
   modelo?: string | null
+  notes?: string | null
+  catalog_product_id?: string | null
   sku?: string | null
   image_url?: string | null
   nomenclatura?: string | null
@@ -507,6 +509,14 @@ function CotizacionPdfInner() {
   // Map: customSystemId → custom system definition (para etiquetar items y resolver nombre)
   const customSysMap: Record<string, { id: string; name: string; color?: string }> = {}
   for (const cs of customSystemsList) customSysMap[cs.id] = cs
+  // Nombre del sistema de un item. Los sistemas custom del cotizador de
+  // Especiales se guardan con system='General' + notes.customSystemId: sin esto
+  // el desglose por área los pintaba como "GENERAL".
+  const nombreSistema = (it: ItemRow, siNada: string): string => {
+    const customId = itemCustomSystemId(it.notes)
+    if (customId && customSysMap[customId]) return customSysMap[customId].name
+    return it.system || siNada
+  }
 
   const filteredItems = activeSystemIds
     ? items.filter(i => {
@@ -536,7 +546,7 @@ function CotizacionPdfInner() {
   const equiposPorSistema = (() => {
     const bySys = new Map<string, Map<string, any>>()
     for (const it of materialItems) {
-      const sys = it.system || 'Sin sistema'
+      const sys = nombreSistema(it, 'Sin sistema')
       if (!bySys.has(sys)) bySys.set(sys, new Map<string, any>())
       const inner = bySys.get(sys) as Map<string, any>
       const key = it.catalog_product_id || `${it.marca || ''}|${it.modelo || ''}|${(it.name || '').toLowerCase()}`
@@ -689,12 +699,7 @@ function CotizacionPdfInner() {
     } else {
       // Para no-elec: si el item es de un sistema custom, usar el nombre custom.
       // Sino, el system field directo (Audio, CCTV, etc.).
-      const customId = itemCustomSystemId(it.notes)
-      if (customId && customSysMap[customId]) {
-        key = customSysMap[customId].name
-      } else {
-        key = it.system || 'General'
-      }
+      key = nombreSistema(it, 'General')
     }
     if (!bySystem[key]) bySystem[key] = { items: [], equipos: 0, installLocal: 0, moProrr: 0, subtotal: 0, count: 0 }
     bySystem[key].items.push(it)
@@ -731,7 +736,7 @@ function CotizacionPdfInner() {
   const byAreaSystem: Record<string, Record<string, ItemRow[]>> = {}
   for (const it of materialItems) {
     const areaName = areas.find(a => a.id === it.area_id)?.name || 'Sin área'
-    const sys = it.system || 'General'
+    const sys = nombreSistema(it, 'General')
     if (!byAreaSystem[areaName]) byAreaSystem[areaName] = {}
     if (!byAreaSystem[areaName][sys]) byAreaSystem[areaName][sys] = []
     byAreaSystem[areaName][sys].push(it)
@@ -1239,7 +1244,7 @@ function CotizacionPdfInner() {
                     <div style={{ fontWeight: 500, fontSize: 10 }}>{it.name}</div>
                     {it.description && <div style={{ fontSize: 9, color: '#888', marginTop: 2, lineHeight: 1.4 }}>{it.description}</div>}
                   </td>
-                  <td style={{ fontSize: 9, color: '#666' }}>{it.system || '—'}</td>
+                  <td style={{ fontSize: 9, color: '#666' }}>{nombreSistema(it, '—')}</td>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{it.quantity}</td>
                   <td style={{ textAlign: 'right', fontWeight: 500 }}>{FCUR(it.price, currency)}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{FCUR(it.price * it.quantity, currency)}</td>

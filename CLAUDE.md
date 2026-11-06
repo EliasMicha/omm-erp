@@ -3966,3 +3966,10 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - **Conciliación**: renglón compacto (fecha dd/mm, beneficiario, monto ±, concepto en 1 línea, categoría, proyecto, conciliado/pendiente). Tocar abre la fila expandida como **hoja a pantalla completa** (fixed dentro del `<td>`), con beneficiario, proyecto, categoría, Conciliar y todo el detalle de facturas vinculadas / asignación. Resumen por proyecto en una fila deslizable.
   - `Table` (UI.tsx) acepta `fijo` → `tableLayout: fixed`, para que un texto con "…" no ensanche la tabla.
 - Gotcha: en una tabla con `table-layout: auto`, `white-space: nowrap` + `text-overflow: ellipsis` NO recorta: la celda crece. En celular usar `tableLayout: 'fixed'`.
+
+### 2026-11-05 — PDF de cotización: sistemas custom de Especiales salían como "GENERAL"
+- Causa: el cotizador ESP guarda los productos de un sistema custom con `system='General'` y el sistema real en `quotation_items.notes.customSystemId` (nombre en `quotations.notes.customSystems[]`). El resumen por sistema del PDF ya lo resolvía, pero el **"Desglose por área y sistema"**, el resumen de equipos por sistema y la columna Sistema del anexo usaban `it.system` → todos los custom (p. ej. Savant + Redes (Fase A) en RD175-ES01) se juntaban en un bloque "GENERAL".
+- `src/pages/CotizacionPdf.tsx`: helper `nombreSistema(it, siNada)` usado en los 4 lugares. `ItemRow` ahora declara `notes` y `catalog_product_id`.
+- `src/lib/catalogoLicitacion.ts` (Excel de licitación): mismo arreglo (`sistemaDe`), agrupa e imputa la instalación por el nombre del sistema custom; el select trae `notes`.
+- **Regla**: en cualquier reporte de Especiales, el sistema de un item = `customSystems[notes.customSystemId].name` si existe, si no `item.system`. Nunca agrupar solo por `item.system`.
+- Pendiente detectado, sin tocar: el PDF no aplica `systems_no_suma` (sistemas que el editor marca para que no sumen); sí lo aplica `soloSistemasVendidos` en el Resumen de inversión.
