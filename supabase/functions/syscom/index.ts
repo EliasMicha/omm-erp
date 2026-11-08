@@ -13,8 +13,13 @@
 //
 //  POST { accion, ... }
 //    ping                         → prueba token + tipo de cambio
-//    buscar  { q, pagina?, moneda?, limite?, stock? } → productos
-//    producto { ids: "id1,id2" , moneda? }            → detalle
+//    buscar  { q, pagina?, moneda?, limite?, stock?, financiero? } → productos
+//    producto { ids: "id1,id2" , moneda?, financiero? }            → detalle
+//
+//  financiero (default true): aplica el descuento financiero de la cuenta OMM
+//  (pago de contado/transferencia). Con él, precio_descuento = lo que muestra
+//  syscom.mx con sesión (UDM-PRO: 490.70 USD + IVA; sin él, 511.14). Precios
+//  siempre SIN IVA.
 //    tipocambio                                        → TC de Syscom
 // ═══════════════════════════════════════════════════════════════════════════
 import { createClient } from 'npm:@supabase/supabase-js@2'
@@ -105,7 +110,7 @@ function compacto(p: any, moneda: string) {
     precio_lista: num(pr.precio_lista),
     precio_especial: num(pr.precio_especial),
     precio_map: num(pr.precio_map),             // precio mínimo anunciado
-    precio_descuento: num(pr.precio_descuento), // el más bajo: precio con el descuento de la cuenta OMM
+    precio_descuento: num(pr.precio_descuento), // COSTO OMM: precio con descuento de la cuenta (+ financiero), sin IVA
     precio_1: num(pr.precio_1),
     sin_precio: Array.isArray(p.precios) && p.precios.length === 0 ? (p.nota || 'Sin precio para esta cuenta') : null,
   }
@@ -127,6 +132,7 @@ Deno.serve(async (req) => {
     if (eu || !u?.user) return json({ error: 'Sesión requerida' }, 401)
   }
   const moneda = body.moneda === 'mxn' ? 'mxn' : 'usd'
+  const financiero = body.financiero === false ? undefined : 1
 
   try {
     if (accion === 'ping') {
@@ -143,7 +149,7 @@ Deno.serve(async (req) => {
       if (q.length < 2) return json({ error: 'Escribe al menos 2 letras para buscar' }, 400)
       const d = await syscomGet('/productos', {
         busqueda: q, pagina: Number(body.pagina) || 1, limit: Math.min(Number(body.limite) || 30, 60),
-        moneda, stock: body.stock ? 1 : undefined,
+        moneda, stock: body.stock ? 1 : undefined, financiero,
       })
       const lista = Array.isArray(d?.productos) ? d.productos : []
       return json({ ok: true, total: d?.cantidad ?? lista.length, paginas: d?.paginas ?? 1, productos: lista.map((p: any) => compacto(p, moneda)) })
@@ -151,7 +157,7 @@ Deno.serve(async (req) => {
     if (accion === 'producto') {
       const ids = String(body.ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 300).join(',')
       if (!ids) return json({ error: 'Falta ids' }, 400)
-      const d = await syscomGet('/productos/' + ids, { moneda })
+      const d = await syscomGet('/productos/' + ids, { moneda, financiero })
       const lista = Array.isArray(d) ? d : [d]
       return json({ ok: true, productos: lista.filter(Boolean).map((p: any) => compacto(p, moneda)) })
     }
