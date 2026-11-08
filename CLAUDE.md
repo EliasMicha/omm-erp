@@ -3973,3 +3973,14 @@ Elias: *"que sea útil como un WhatsApp literalmente si lo veo en el celular… 
 - `src/lib/catalogoLicitacion.ts` (Excel de licitación): mismo arreglo (`sistemaDe`), agrupa e imputa la instalación por el nombre del sistema custom; el select trae `notes`.
 - **Regla**: en cualquier reporte de Especiales, el sistema de un item = `customSystems[notes.customSystemId].name` si existe, si no `item.system`. Nunca agrupar solo por `item.system`.
 - Pendiente detectado, sin tocar: el PDF no aplica `systems_no_suma` (sistemas que el editor marca para que no sumen); sí lo aplica `soloSistemasVendidos` en el Resumen de inversión.
+
+### 2026-11-08 — Syscom conectado (Edge Function `syscom`)
+- Secrets en Supabase (los puso Elias): **`SYSCOM_API_KEY`** (= client_id) y **`SYSCOM_API_SECRET`** (= client_secret). Ojo: no se llaman CLIENT_ID/CLIENT_SECRET; la función acepta ambos nombres.
+- `supabase/functions/syscom/index.ts` (v4 desplegada, `verify_jwt: true`). POST `{accion}`:
+  - `ping` → token + tipo de cambio (abierto sin sesión: no expone nada; útil para diagnosticar).
+  - `buscar {q, pagina?, moneda?: 'usd'|'mxn', limite?, stock?}`, `producto {ids, moneda?}`, `tipocambio` → **solo usuarios con sesión del ERP** (valida el JWT del usuario con `auth.getUser`).
+  - Respuesta compacta por producto: id, modelo, marca, titulo, imagen, link, existencia, moneda, precio_lista, precio_especial, precio_map, precio_descuento (el más bajo = precio con descuento de la cuenta OMM), precio_1, sin_precio.
+- Token OAuth2 client_credentials de Syscom dura **365 días** (vence 2027-11-08); se guarda en `public.syscom_token` (RLS sin políticas, solo service_role) y se renueva solo si vence o si Syscom contesta 401. Migración `20261108_syscom_token.sql`.
+- Verificado: ping OK (TC normal 18.76); búsqueda "UDM-PRO" → 11 resultados con precios y existencias (probada desde la BD con `pg_net` usando el token guardado).
+- API Syscom: base `https://developers.syscom.mx/api/v1`; `/productos?busqueda=` (pide al menos busqueda/categoria/marca; `limit` hasta 1000, `moneda` usd por omisión), `/productos/{ids}` (hasta 300), `/tipocambio`. Existencias topadas: >200 se muestra 200, ≥3000 se muestra 500.
+- **Pendiente**: UI "Buscar en Syscom" en los cotizadores (opción a) y actualización diaria de precios del catálogo (opción b). Decidir qué precio de Syscom es el costo de OMM (`precio_descuento`).
