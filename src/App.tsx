@@ -39,6 +39,7 @@ function Cargando() {
 }
 
 const OAuthConsent = cargarPagina(() => import('./pages/OAuthConsent'))
+const Restablecer = cargarPagina(() => import('./pages/Restablecer'))
 const Dashboard = cargarPagina(() => import('./pages/Dashboard'))
 const CRM = cargarPagina(() => import('./pages/CRM'))
 const Cotizaciones = cargarPagina(() => import('./pages/Cotizaciones'))
@@ -84,6 +85,8 @@ export default function App() {
         <Routes>
           {/* Login — sin protección */}
           <Route path="/login" element={<Login />} />
+          {/* Liga de "¿Olvidaste tu contraseña?": sin sesión por definición. */}
+          <Route path="/restablecer" element={<Restablecer />} />
           {/* Vista PDF — sin sidebar ni layout oscuro, abre en pestaña propia */}
           <Route path="/cotizacion/:id/pdf/:format" element={<CotizacionPdf />} />
           <Route path="/cotizacion/:id/memoria-tecnica" element={<MemoriaTecnica />} />

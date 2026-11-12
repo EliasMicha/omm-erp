@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 
-type Mode = 'login' | 'first-time-setup'
+type Mode = 'login' | 'first-time-setup' | 'forgot'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -51,6 +52,20 @@ export default function Login() {
     setLoading(true)
 
     try {
+      if (mode === 'forgot') {
+        // La Edge Function recuperar-acceso arma la liga y la manda por el Gmail
+        // del ERP. Contesta siempre lo mismo (no revela qué correos existen).
+        const { data, error: err } = await withTimeout(
+          supabase.functions.invoke('recuperar-acceso', { body: { email: email.trim().toLowerCase() } }),
+          15000, 'recuperar')
+        setLoading(false)
+        if (err || !(data as any)?.ok) {
+          setError((data as any)?.error || 'No se pudo enviar. Intenta de nuevo en unos minutos.')
+          return
+        }
+        setInfo((data as any).mensaje || 'Si el correo está dado de alta, te llega una liga para crear una contraseña nueva.')
+        return
+      }
       if (mode === 'login') {
         const { error: err, needsSignup } = await withTimeout(signIn(email, password), 10000, 'signIn')
         if (needsSignup) {
@@ -115,7 +130,7 @@ export default function Login() {
             <span style={{ color: '#10B981' }}>OMM</span> Tech
           </div>
           <div style={{ fontSize: 12, color: '#555', marginTop: 4, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            {mode === 'login' ? 'ERP Sistema' : 'Primer ingreso'}
+            {mode === 'login' ? 'ERP Sistema' : mode === 'forgot' ? 'Recuperar contraseña' : 'Primer ingreso'}
           </div>
         </div>
 
@@ -145,7 +160,13 @@ export default function Login() {
           />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {mode === 'forgot' && (
+          <div style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+            Escribe tu correo del ERP y te mandamos una liga para crear una contraseña nueva.
+          </div>
+        )}
+
+        {mode !== 'forgot' && <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 12, color: '#888' }}>
             {mode === 'login' ? 'Contraseña' : 'Nueva contraseña'}
           </label>
@@ -159,7 +180,7 @@ export default function Login() {
             onFocus={e => e.currentTarget.style.borderColor = '#10B981'}
             onBlur={e => e.currentTarget.style.borderColor = '#333'}
           />
-        </div>
+        </div>}
 
         {mode === 'first-time-setup' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -187,12 +208,22 @@ export default function Login() {
           }}
         >
           {loading
-            ? (mode === 'login' ? 'Entrando...' : 'Creando cuenta...')
-            : (mode === 'login' ? 'Iniciar sesión' : 'Configurar contraseña y entrar')
+            ? (mode === 'login' ? 'Entrando...' : mode === 'forgot' ? 'Enviando...' : 'Creando cuenta...')
+            : (mode === 'login' ? 'Iniciar sesión' : mode === 'forgot' ? 'Mandarme la liga' : 'Configurar contraseña y entrar')
           }
         </button>
 
-        {mode === 'first-time-setup' && (
+        {mode === 'login' && (
+          <button
+            type="button"
+            onClick={() => { setMode('forgot'); setError(''); setInfo(''); setPassword('') }}
+            style={{ background: 'transparent', color: '#10B981', border: 'none', fontSize: 12, cursor: 'pointer', marginTop: -8 }}
+          >
+            ¿Olvidaste tu contraseña?
+          </button>
+        )}
+
+        {mode !== 'login' && (
           <button
             type="button"
             onClick={() => { setMode('login'); setError(''); setInfo(''); setPassword(''); setConfirmPassword('') }}
