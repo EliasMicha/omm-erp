@@ -72,6 +72,62 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   return fetchOriginal(input, init)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Aviso de versión nueva (2026-11-13). En el iPhone el ERP corre como app de
+// inicio: al volver a abrirla iOS NO recarga la página, así que la persona se
+// queda días con el JS viejo aunque ya se haya desplegado otro. Aquí se compara
+// el bundle con el que arrancó la página contra el que sirve hoy index.html:
+//   * al volver a la app (visibilitychange) y cada 5 min;
+//   * si estuvo fuera más de 10 min, recarga sola (nadie está a media captura);
+//   * si no, enseña un aviso "Hay una versión nueva · Actualizar".
+// ─────────────────────────────────────────────────────────────────────────────
+;(() => {
+  const patron = /\/assets\/index-[A-Za-z0-9_-]+\.js/
+  const propio = Array.from(document.querySelectorAll('script[src]'))
+    .map(s => (s as HTMLScriptElement).src).find(src => patron.test(src))
+  if (!propio) return  // modo desarrollo: no hay bundle con hash
+  const actual = (propio.match(patron) || [''])[0]
+  let ocultaDesde = 0
+  let avisado = false
+
+  async function hayNueva(): Promise<boolean> {
+    try {
+      const r = await fetch('/index.html?v=' + Date.now(), { cache: 'no-store' })
+      if (!r.ok) return false
+      const m = (await r.text()).match(patron)
+      return !!m && m[0] !== actual
+    } catch { return false }
+  }
+
+  function avisar() {
+    if (avisado) return
+    avisado = true
+    const d = document.createElement('div')
+    d.setAttribute('role', 'status')
+    d.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:2000;background:#10B981;color:#04140c;padding:10px 14px;border-radius:12px;font:600 13px Inter,system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5);display:flex;gap:10px;align-items:center;max-width:calc(100% - 32px);box-sizing:border-box'
+    const t = document.createElement('span'); t.textContent = 'Hay una versión nueva del ERP'
+    const b = document.createElement('button'); b.textContent = 'Actualizar'
+    b.style.cssText = 'background:#04140c;color:#10B981;border:0;border-radius:8px;padding:6px 10px;font:700 12px Inter,system-ui,sans-serif;cursor:pointer'
+    b.onclick = () => window.location.reload()
+    d.append(t, b)
+    document.body.appendChild(d)
+  }
+
+  async function revisar(fueraMucho: boolean) {
+    if (!(await hayNueva())) return
+    if (fueraMucho) window.location.reload()
+    else avisar()
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { ocultaDesde = Date.now(); return }
+    const fuera = ocultaDesde ? Date.now() - ocultaDesde : 0
+    ocultaDesde = 0
+    revisar(fuera > 10 * 60 * 1000)
+  })
+  setInterval(() => { if (document.visibilityState === 'visible') revisar(false) }, 5 * 60 * 1000)
+})()
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
