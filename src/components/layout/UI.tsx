@@ -18,18 +18,21 @@ export function Badge({ label, color }: { label: string; color: string }) {
 export function KpiCard({ label, value, color = '#10B981', icon }: {
   label: string; value: string | number; color?: string; icon?: ReactNode
 }) {
+  // En celular, compacto: cuatro tarjetas de 22px ocupaban la pantalla entera
+  // antes de llegar al primer dato de la lista.
+  const cel = enCelular()
   return (
     <div style={{
-      background: '#141414', border: '1px solid #222', borderRadius: 12,
-      padding: '16px 18px', borderTop: `2px solid ${color}`,
+      background: '#141414', border: '1px solid #222', borderRadius: cel ? 10 : 12,
+      padding: cel ? '9px 11px' : '16px 18px', borderTop: `2px solid ${color}`, minWidth: 0,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 11, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: cel ? 3 : 8 }}>
+        <div style={{ fontSize: cel ? 9.5 : 11, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: cel ? '0.04em' : '0.06em', lineHeight: 1.3 }}>
           {label}
         </div>
         {icon && <span style={{ color, opacity: 0.7 }}>{icon}</span>}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{value}</div>
+      <div style={{ fontSize: cel ? 16 : 22, fontWeight: 700, color: '#fff', whiteSpace: cel ? 'nowrap' : undefined, overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
     </div>
   )
 }

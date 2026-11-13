@@ -273,12 +273,67 @@ export default function Cobranza() {
     const f = faseByKey(value)
     return (
       <select value={value || ''} onChange={e => onChange(e.target.value)} onClick={e => e.stopPropagation()}
-        style={{ background: '#0e0e0e', border: '1px solid ' + (f ? faseColor(f.pct) : '#333'), color: f ? faseColor(f.pct) : '#888', borderRadius: 6, padding: '4px 6px', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer' }}>
+        style={{ background: '#0e0e0e', border: '1px solid ' + (f ? faseColor(f.pct) : '#333'), color: f ? faseColor(f.pct) : '#888', borderRadius: 6, padding: isMobile ? '6px 8px' : '4px 6px', fontSize: isMobile ? 16 : 11, fontFamily: 'inherit', cursor: 'pointer', ...(isMobile ? { width: '100%', boxSizing: 'border-box' as const } : {}) }}>
         <option value="">— sin fase —</option>
         {opts.map(o => <option key={o.k} value={o.k}>{o.label} ({o.pct}%)</option>)}
       </select>
     )
   }
+
+  // ── Celular: renglones compactos en vez de la tabla de 15 columnas ──
+  const toggle = (id: string) => setExpanded(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const renderMovil = (list: LeadRow[]) => (
+    <div style={{ border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+      {list.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#666', fontSize: 12 }}>Sin obras.</div>}
+      {list.map((L, i) => {
+        const open = expanded.has(L.leadId)
+        const atras = L.gap > 0
+        return (
+          <div key={L.leadId} style={{ borderTop: i ? '1px solid #161616' : 'none', background: open ? '#0d0d0d' : 'transparent' }}>
+            <div onClick={() => toggle(L.leadId)} style={{ display: 'flex', gap: 8, padding: '10px 12px', cursor: 'pointer', alignItems: 'flex-start' }}>
+              <span style={{ color: '#666', paddingTop: 2, flexShrink: 0 }}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{L.lead}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: L.porCobrar > 0 ? '#D97706' : '#555', whiteSpace: 'nowrap' }}>{money(L.porCobrar)}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#777', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {L.tipos || '—'} · cobrado <span style={{ color: '#10B981' }}>{money(L.cTot)}</span> de {money(L.vTot)} ({pctS(L.avance)})
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, fontSize: 11, flexWrap: 'wrap' }}>
+                  {L.entrega && <span style={{ fontSize: 9, color: '#8B5CF6', border: '1px solid #8B5CF640', borderRadius: 8, padding: '1px 6px' }}>ENTREGA</span>}
+                  <span style={{ color: atras ? '#EF4444' : '#10B981', fontWeight: 600 }}>{atras ? `A cobrar ${money(L.gap)}` : 'Al día ✓'}</span>
+                  {L.objetivo > 0 && <span style={{ color: '#666' }}>obj {pctS(L.objetivo)}</span>}
+                  <span style={{ color: L.fasesSet === L.nQuotes ? '#10B981' : '#D97706' }}>fases {L.fasesSet}/{L.nQuotes}</span>
+                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => { const d = buildDraft(L); setDraft({ L, subject: d.subject, text: d.text }); setPara(''); setGmailMsg(null) }} title="Redactar cobro (borrador)" style={{ background: 'none', border: '1px solid #10B98155', borderRadius: 6, padding: '3px 8px', color: '#10B981', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>✉︎</button>
+                    <button onClick={() => navigate('/crm/' + L.leadId)} title="Abrir en CRM" style={{ background: 'none', border: '1px solid #333', borderRadius: 6, padding: '3px 7px', color: '#888', cursor: 'pointer' }}><ExternalLink size={12} /></button>
+                  </span>
+                </div>
+              </div>
+            </div>
+            {open && L.quotes.map(q => {
+              const isU = q.cur === 'USD'
+              const vE = isU ? q.vendido * tc : q.vendido
+              const cE = isU ? q.cobrado * tc : q.cobrado
+              return (
+                <div key={q.id} style={{ padding: '8px 12px 10px 34px', borderTop: '1px solid #141414', background: '#0a0a0a' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 12, color: '#bbb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{q.name}</span>
+                    <span style={{ fontSize: 12, color: '#b5760a', fontWeight: 600, whiteSpace: 'nowrap' }}>{isU ? moneyU(Math.max(0, q.vendido - q.cobrado)) : money(Math.max(0, vE - cE))}</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: '#666', margin: '2px 0 6px' }}>
+                    {q.specialty} · {q.cur}{isU ? ' @' + tc : ''} · cobrado {vE > 0 ? pctS(cE / vE) : '—'}{faseByKey(q.fase) ? ` · fase ${faseByKey(q.fase)!.pct}%` : ''}
+                  </div>
+                  {faseSelect(q.specialty, q.fase, v => setFaseQuote(q.id, v))}
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
 
   const TH = (
     <tr style={{ background: '#111' }}>
@@ -346,6 +401,36 @@ export default function Cobranza() {
     )
   })
 
+  const renderProgMovil = () => (
+    <div style={{ border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+      {activas.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#666', fontSize: 12 }}>Sin obras activas.</div>}
+      {activas.map((L, i) => (
+        <div key={L.leadId} style={{ padding: '10px 12px', borderTop: i ? '1px solid #161616' : 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{L.lead}</span>
+            <span style={{ fontSize: 12, color: '#D97706', fontWeight: 600, whiteSpace: 'nowrap' }}>{money(L.porCobrar)}</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#777', margin: '2px 0 8px' }}>{L.tipos || '—'} · av {pctS(L.avance)}{L.objetivo > 0 ? ` · obj ${pctS(L.objetivo)}` : ''}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 8 }}>
+            <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Esperado este mes
+              <input type="number" inputMode="decimal" defaultValue={esperadoDe(L)} key={L.leadId + '-' + Math.round(L.gap) + '-' + (obraTrack[L.leadId]?.monto_esperado ?? 'x')}
+                onBlur={e => { const v = e.target.value.trim(); saveObra(L.leadId, { monto_esperado: v === '' ? null : Number(v) }) }}
+                style={{ display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 3, background: '#0e0e0e', border: '1px solid #333', borderRadius: 6, color: '#EF4444', fontSize: 16, padding: '6px 8px', textAlign: 'right', fontFamily: 'inherit', fontWeight: 600 }} />
+            </label>
+            <label style={{ fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fecha pronosticada
+              <input type="date" defaultValue={obraTrack[L.leadId]?.fecha_pronosticada || ''}
+                onChange={e => saveObra(L.leadId, { fecha_pronosticada: e.target.value || null })}
+                style={{ display: 'block', width: '100%', minWidth: 0, boxSizing: 'border-box', marginTop: 3, background: '#0e0e0e', border: '1px solid #333', borderRadius: 6, color: '#ccc', fontSize: 16, padding: '6px 8px', fontFamily: 'inherit', WebkitAppearance: 'none' as any, minHeight: 36 }} />
+            </label>
+          </div>
+        </div>
+      ))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', borderTop: '2px solid #333', background: '#0a0a0a', fontSize: 13 }}>
+        <b style={{ color: '#fff' }}>Total esperado este mes</b><b style={{ color: '#EF4444' }}>{money(totEsperado)}</b>
+      </div>
+    </div>
+  )
+
   const renderProg = () => (
     <div style={{ overflowX: 'auto', border: '1px solid #1e1e1e', borderRadius: 12 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
@@ -407,10 +492,10 @@ export default function Cobranza() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 11, color: '#666' }}>TC general USD→MXN:</span>
             <input type="number" step="0.1" value={tc} onChange={e => setTc(parseFloat(e.target.value) || tc)}
-              style={{ width: 70, background: '#0e0e0e', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, padding: '4px 8px', fontFamily: 'inherit' }} />
+              style={{ width: 70, background: '#0e0e0e', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: isMobile ? 16 : 12, padding: '4px 8px', fontFamily: 'inherit' }} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr) minmax(0,1fr)' : 'repeat(4, 1fr)', gap: isMobile ? 8 : 10, marginBottom: isMobile ? 14 : 20 }}>
             {view === 'programacion' ? (<>
               <KpiCard label={`Objetivo teórico (deberías tener cobrado · ${pctS(mensual.pctAlDia)} al día)`} value={money(mensual.teorico)} color="#3B82F6" />
               <KpiCard label="Real cobrado" value={money(mensual.cobrado)} color="#10B981" />
@@ -425,6 +510,7 @@ export default function Cobranza() {
           </div>
 
           {view === 'detalle' ? (<>
+          {isMobile ? renderMovil(activas) : (
           <div style={{ overflowX: 'auto', border: '1px solid #1e1e1e', borderRadius: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
               <thead>{TH}</thead>
@@ -434,13 +520,15 @@ export default function Cobranza() {
               </tbody>
             </table>
           </div>
+          )}
 
           {finiquitadas.length > 0 && (
             <div style={{ marginTop: 18 }}>
               <button onClick={() => setShowFin(s => !s)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid #222', borderRadius: 8, padding: '8px 14px', color: '#888', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>
                 {showFin ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Obras finiquitadas ({finiquitadas.length}) — cobradas al ~100%
               </button>
-              {showFin && (
+              {showFin && isMobile && <div style={{ marginTop: 10, opacity: 0.75 }}>{renderMovil(finiquitadas)}</div>}
+              {showFin && !isMobile && (
                 <div style={{ overflowX: 'auto', border: '1px solid #1a1a1a', borderRadius: 12, marginTop: 10, opacity: 0.7 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
                     <thead>{TH}</thead>
@@ -457,7 +545,7 @@ export default function Cobranza() {
           </>) : (
             <>
               <div style={{ fontSize: 11, color: '#555', marginBottom: 10 }}>El <b>esperado este mes</b> se autocalcula del gap de fase (lo que falta para el % objetivo). Es editable si acordaste otro monto con el cliente. Total esperado del mes: <b style={{ color: '#EF4444' }}>{money(totEsperado)}</b>.</div>
-              {renderProg()}
+              {isMobile ? renderProgMovil() : renderProg()}
             </>
           )}
         </>
