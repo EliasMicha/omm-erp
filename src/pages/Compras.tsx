@@ -222,16 +222,20 @@ function Field({ label, value, onChange, placeholder = '', type = 'text', disabl
   label: string; value: string; onChange?: (v: string) => void
   placeholder?: string; type?: string; disabled?: boolean
 }) {
+  // En celular: 16px para que iOS no haga zoom al tocar, y el input de fecha
+  // sin apariencia nativa (Safari le pone un ancho mínimo y se sale de la celda).
+  const isMobile = useIsMobile()
   return (
-    <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block' }}>
+    <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', minWidth: 0 }}>
       {label}
       <input type={type} value={value} onChange={e => onChange?.(e.target.value)}
         placeholder={placeholder} disabled={disabled}
         style={{
           display: 'block', width: '100%', marginTop: 4, padding: '8px 10px',
           background: disabled ? '#111' : '#1e1e1e', border: '1px solid #333',
-          borderRadius: 8, color: disabled ? '#555' : '#fff', fontSize: 13,
-          fontFamily: 'inherit', boxSizing: 'border-box' as const,
+          borderRadius: 8, color: disabled ? '#555' : '#fff', fontSize: isMobile ? 16 : 13,
+          fontFamily: 'inherit', boxSizing: 'border-box' as const, minWidth: 0, maxWidth: '100%',
+          ...(isMobile && type === 'date' ? { WebkitAppearance: 'none' as any, appearance: 'none' as any, textAlign: 'left' as const, minHeight: 40 } : {}),
         }} />
     </label>
   )
@@ -241,14 +245,15 @@ function SelectField({ label, value, onChange, options, placeholder }: {
   label: string; value: string; onChange: (v: string) => void
   options: { value: string; label: string }[]; placeholder?: string
 }) {
+  const isMobile = useIsMobile()
   return (
-    <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block' }}>
+    <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', minWidth: 0 }}>
       {label}
       <select value={value} onChange={e => onChange(e.target.value)}
         style={{
           display: 'block', width: '100%', marginTop: 4, padding: '8px 10px',
           background: '#1e1e1e', border: '1px solid #333', borderRadius: 8,
-          color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' as const,
+          color: '#fff', fontSize: isMobile ? 16 : 13, fontFamily: 'inherit', boxSizing: 'border-box' as const, minWidth: 0, maxWidth: '100%',
         }}>
         {placeholder && <option value="">{placeholder}</option>}
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -313,6 +318,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const isMobile = useIsMobile()
   const selected = options.find(o => o.value === value)
   const filtered = search ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase())) : options
 
@@ -323,7 +329,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
   }, [])
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
       <div style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
       <div
         onClick={() => { setOpen(true); setSearch('') }}
@@ -342,7 +348,7 @@ function SearchableSelect({ label, value, onChange, options, placeholder }: {
               autoFocus
               value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Buscar..."
-              style={{ width: '100%', padding: '6px 8px', background: '#141414', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' as const, outline: 'none' }}
+              style={{ width: '100%', padding: '6px 8px', background: '#141414', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: isMobile ? 16 : 12, fontFamily: 'inherit', boxSizing: 'border-box' as const, outline: 'none' }}
             />
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -3623,7 +3629,12 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     }
   }, [effectiveLeadId])
 
-  if (loading || !po) return <div style={{ padding: '24px 28px' }}><Loading /></div>
+  // Celular: "ver, no operar". Las partidas se ven en renglón compacto y se
+  // editan en una hoja aparte (itemAbierto). Van ARRIBA del return temprano.
+  const isMobile = useIsMobile()
+  const [itemAbierto, setItemAbierto] = useState<string | null>(null)
+
+  if (loading || !po) return <div style={{ padding: isMobile ? '12px' : '24px 28px' }}><Loading /></div>
 
   const stCfg = PO_STATUS_CFG[po.status]
   const esp = SPECIALTY_CONFIG[po.specialty]
@@ -3900,28 +3911,32 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     : catalog.slice(0, 20)
 
   return (
-    <div style={{ padding: '24px 28px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+    <div style={{ padding: isMobile ? '10px 12px 90px' : '24px 28px', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}>
+      {/* Header — en celular: 50px libres para el botón del menú, chips debajo
+          del folio y los botones en su propio renglón */}
+      <div style={isMobile
+        ? { display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', alignItems: 'start', columnGap: 6, rowGap: 10, marginBottom: 14, paddingLeft: 46 }
+        : { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 4 }}>
           <ChevronLeft size={20} />
         </button>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{folioOC(po)}</span>
-            <FolioChip folio={folioOC(po)} size={11} titulo="Copiar para el concepto de la transferencia" />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: isMobile ? 16 : 18, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>{folioOC(po)}</span>
+            {!isMobile && <FolioChip folio={folioOC(po)} size={11} titulo="Copiar para el concepto de la transferencia" />}
             <Badge label={stCfg.label} color={stCfg.color} />
             {esServicio && <Badge label="🔧 Servicio" color="#A78BFA" />}
             <Badge label={esp.icon + ' ' + esp.label} color={esp.color} />
             {po.purchase_phase && PHASE_CONFIG[po.purchase_phase] && <Badge label={PHASE_CONFIG[po.purchase_phase].label} color={PHASE_CONFIG[po.purchase_phase].color} />}
           </div>
-          <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>
+          {isMobile && <div style={{ marginTop: 6 }}><FolioChip folio={folioOC(po)} size={11} titulo="Copiar para el concepto de la transferencia" /></div>}
+          <div style={{ fontSize: isMobile ? 11 : 12, color: '#555', marginTop: 2 }}>
             Creada {formatDate(po.created_at)}
             {po.approved_at && ` | Aprobada ${formatDate(po.approved_at)}`}
             {po.delivered_at && ` | Recibida ${formatDate(po.delivered_at)}`}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', ...(isMobile ? { gridColumn: '1 / -1', marginLeft: -46 } : {}) }}>
           <Btn size="sm" onClick={() => {
             const catMap = new Map(catalog.map(c => [c.id, c]))
             // comoQuedo() resuelve el renglón al cotejo: sin esto el PDF
@@ -3984,7 +3999,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           ? (cachedQuotes ?? quotations.filter(q => q.lead_id === currentLeadId))
           : []
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <SearchableSelect label="Proveedor" value={po.supplier_id || ''}
                 onChange={v => {
@@ -4097,7 +4112,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           cancelada: po.status === 'cancelada',
         })
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr 1fr 1fr 2fr', gap: 12, marginBottom: 12 }}>
             <Field label="Entrega esperada" value={po.expected_delivery || ''} type="date"
               onChange={v => { setPO(p => p ? { ...p, expected_delivery: v } : p); setDirty(true) }} />
             <div>
@@ -4129,7 +4144,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                 )}
               </div>
             </div>
-            <div>
+            <div style={isMobile ? { gridColumn: '1 / -1' } : undefined}>
               <Field label="Folio / cotización del proveedor" value={po.supplier_doc_number || ''}
                 onChange={v => { setPO(p => p ? { ...p, supplier_doc_number: v } : p); setDirty(true) }}
                 placeholder="ej. OV-12345 / Cot-2024-789" />
@@ -4162,9 +4177,11 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                 )
               })()}
             </div>
-            <Field label="Descripción general" value={po.descripcion || ''}
-              onChange={v => { setPO(p => p ? { ...p, descripcion: v } : p); setDirty(true) }}
-              placeholder="ej. Redes A101" />
+            <div style={isMobile ? { gridColumn: '1 / -1' } : undefined}>
+              <Field label="Descripción general" value={po.descripcion || ''}
+                onChange={v => { setPO(p => p ? { ...p, descripcion: v } : p); setDirty(true) }}
+                placeholder="ej. Redes A101" />
+            </div>
           </div>
         )
       })()}
@@ -4172,7 +4189,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
       {/* Logística row (Entregas v2) */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: LOGISTICS_CFG[(po.logistics_mode || 'pending') as LogisticsMode].needsObra ? '1fr 1fr 2fr' : '1fr 3fr',
+        gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : LOGISTICS_CFG[(po.logistics_mode || 'pending') as LogisticsMode].needsObra ? '1fr 1fr 2fr' : '1fr 3fr',
         gap: 12, marginBottom: 20, padding: '12px 14px',
         background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10,
       }}>
@@ -4218,9 +4235,9 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
 
       {/* Items table */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Partidas ({items.length})</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap' }}>Partidas ({items.length})</div>
             {po.status === 'borrador' && totalItems > 0 && (
               <div style={{
                 fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
@@ -4228,7 +4245,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                 color: allCotejado ? '#10B981' : '#D97706',
                 border: `1px solid ${allCotejado ? '#10B98133' : '#D9770633'}`,
               }}>
-                Cotejo: {cotejados}/{totalItems} {allCotejado ? '✓' : ''}
+                <span style={{ whiteSpace: 'nowrap' }}>Cotejo: {cotejados}/{totalItems} {allCotejado ? '✓' : ''}</span>
               </div>
             )}
             {esServicio && (
@@ -4244,6 +4261,42 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           )}
         </div>
 
+        {isMobile ? (
+          <div style={{ border: '1px solid #222', borderRadius: 10, overflow: 'hidden' }}>
+            {items.length === 0 && <EmptyState message="Agrega partidas a esta orden" />}
+            {items.map((it, idx) => {
+              const rTotal = it.real_total ?? (it.real_unit_cost != null && it.real_quantity != null ? Math.round(it.real_unit_cost * it.real_quantity * 100) / 100 : null)
+              const cotejoColor = it.cotejo_status === 'cotejado' ? '#10B981' : it.cotejo_status === 'sustituido' ? '#A78BFA' : '#6B7280'
+              const cotejoLabel = it.cotejo_status === 'cotejado' ? 'Cotejado' : it.cotejo_status === 'sustituido' ? 'Sustituido' : 'Pendiente'
+              const conCotejo = verCotejo && rTotal != null
+              const rec = recibidoPorItem[it.id] ?? 0
+              const verRecibido = po.status === 'pedida' || po.status === 'recibida_parcial'
+              return (
+                <div key={it.id} onClick={() => setItemAbierto(it.id)}
+                  style={{ display: 'flex', gap: 10, padding: '10px 12px', borderTop: idx ? '1px solid #1c1c1c' : 'none', cursor: 'pointer', alignItems: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#555', width: 16, flexShrink: 0 }}>{idx + 1}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {conCotejo && it.real_name ? it.real_name : it.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                      {[it.modelo, it.marca, it.system].filter(Boolean).join(' · ') || '—'}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 3, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span>{conCotejo ? (it.real_quantity ?? it.quantity) : it.quantity} {it.unit} × {F(conCotejo ? (it.real_unit_cost ?? it.unit_cost) : it.unit_cost)}</span>
+                      {verCotejo && <span style={{ color: cotejoColor, fontWeight: 600 }}>· {cotejoLabel}</span>}
+                      {verRecibido && <span style={{ color: rec === 0 ? '#555' : rec >= Number(it.quantity) ? '#10B981' : '#D97706' }}>· recibido {rec}</span>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: conCotejo ? '#10B981' : '#ccc' }}>{F(conCotejo ? rTotal! : it.total)}</div>
+                    {conCotejo && rTotal !== it.total && <div style={{ fontSize: 10, color: '#555', textDecoration: 'line-through' }}>{F(it.total)}</div>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
         <div style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' as const }}>
         <Table>
           <thead><tr>
@@ -4401,10 +4454,98 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           </tbody>
         </Table>
         </div>
+        )}
       </div>
 
+      {/* Hoja de edición de una partida (celular) */}
+      {isMobile && itemAbierto && (() => {
+        const it = items.find(x => x.id === itemAbierto)
+        if (!it) return null
+        const rTotal = it.real_total ?? (it.real_unit_cost != null && it.real_quantity != null ? Math.round(it.real_unit_cost * it.real_quantity * 100) / 100 : null)
+        const lbl: React.CSSProperties = { fontSize: 10, color: '#666', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }
+        const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '9px 10px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: 16, fontFamily: 'inherit', outline: 'none' }
+        const fila = (label: string, valor: React.ReactNode) => (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: '1px solid #1c1c1c', fontSize: 13 }}>
+            <span style={{ color: '#777' }}>{label}</span><span style={{ color: '#ddd', textAlign: 'right' }}>{valor}</span>
+          </div>
+        )
+        return (
+          <div onClick={() => setItemAbierto(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1150, display: 'flex', alignItems: 'flex-end' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#141414', borderTop: '1px solid #2a2a2a', borderRadius: '16px 16px 0 0', width: '100%', maxHeight: '88vh', overflowY: 'auto', padding: '16px 16px 28px', boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Partida {items.indexOf(it) + 1}</div>
+                <button onClick={() => setItemAbierto(null)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 4 }}><X size={20} /></button>
+              </div>
+              {canEdit ? (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div><div style={lbl}>Artículo</div><input value={it.name} onChange={e => updateItem(it.id, 'name', e.target.value)} style={inp} /></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: 10 }}>
+                    <div><div style={lbl}>Modelo</div><input value={it.modelo || ''} onChange={e => updateItem(it.id, 'modelo', e.target.value)} style={{ ...inp, fontFamily: 'monospace' }} /></div>
+                    <div><div style={lbl}>Unidad</div><input value={it.unit} onChange={e => updateItem(it.id, 'unit', e.target.value)} style={inp} /></div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 10 }}>
+                    <div><div style={lbl}>Cantidad</div><input type="number" inputMode="decimal" value={it.quantity} onChange={e => updateItem(it.id, 'quantity', parseFloat(e.target.value) || 0)} style={inp} /></div>
+                    <div><div style={lbl}>P.U. catálogo</div><input type="number" inputMode="decimal" value={it.unit_cost} onChange={e => updateItem(it.id, 'unit_cost', parseFloat(e.target.value) || 0)} style={inp} /></div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {fila('Artículo', it.name)}
+                  {fila('Modelo', it.modelo || '—')}
+                  {fila('Cantidad', `${it.quantity} ${it.unit}`)}
+                  {fila('P.U. catálogo', F(it.unit_cost))}
+                </div>
+              )}
+              <div style={{ marginTop: 8 }}>
+                {it.marca && fila('Marca', it.marca)}
+                {fila('Sistema', it.system || '—')}
+                {fila('Total catálogo', F(it.total))}
+                {(po.status === 'pedida' || po.status === 'recibida_parcial') && fila('Recibido (desde Entregas)', String(recibidoPorItem[it.id] ?? 0))}
+              </div>
+
+              {verCotejo && (
+                <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#10B981', marginBottom: 10 }}>Cotejo · lo que se compra</div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div><div style={lbl}>Artículo real</div>
+                      <input value={it.real_name || ''} readOnly={!canEdit} placeholder={it.name} onChange={e => updateItem(it.id, 'real_name', e.target.value)} style={inp} /></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 10 }}>
+                      <div><div style={lbl}>Cant real</div>
+                        <input type="number" inputMode="decimal" value={it.real_quantity ?? ''} readOnly={!canEdit} placeholder={String(it.quantity)}
+                          onChange={e => { const rq = parseFloat(e.target.value) || 0; const rc = it.real_unit_cost ?? it.unit_cost; updateItem(it.id, 'real_quantity', rq); updateItem(it.id, 'real_total', Math.round(rq * rc * 100) / 100) }} style={inp} /></div>
+                      <div><div style={lbl}>P.U. real</div>
+                        <input type="number" inputMode="decimal" value={it.real_unit_cost ?? ''} readOnly={!canEdit} placeholder={String(it.unit_cost)}
+                          onChange={e => { const rc = parseFloat(e.target.value) || 0; const rq = it.real_quantity ?? it.quantity; updateItem(it.id, 'real_unit_cost', rc); updateItem(it.id, 'real_total', Math.round(rq * rc * 100) / 100) }} style={inp} /></div>
+                    </div>
+                    <div><div style={lbl}>Estado</div>
+                      <select value={it.cotejo_status || 'pendiente'} disabled={!canEdit} onChange={e => { updateItem(it.id, 'cotejo_status', e.target.value); setDirty(true) }} style={inp}>
+                        <option value="pendiente">Pendiente</option>
+                        <option value="cotejado">Cotejado</option>
+                        <option value="sustituido">Sustituido</option>
+                      </select></div>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    {fila('Total real', rTotal != null ? F(rTotal) : '—')}
+                    {rTotal != null && fila('Diferencia', <span style={{ color: rTotal - it.total > 0 ? '#DC2626' : rTotal - it.total < 0 ? '#10B981' : '#888', fontWeight: 600 }}>{rTotal - it.total > 0 ? '+' : ''}{F(rTotal - it.total)}</span>)}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+                {canEdit && (
+                  <Btn variant="danger" onClick={() => { if (confirm('¿Quitar esta partida?')) { removeItem(it.id); setItemAbierto(null) } }}><Trash2 size={14} /> Quitar</Btn>
+                )}
+                <div style={{ flex: 1 }} />
+                <Btn variant="primary" onClick={() => setItemAbierto(null)}>Listo</Btn>
+              </div>
+              {canEdit && <div style={{ fontSize: 11, color: '#666', marginTop: 10 }}>Los cambios se guardan con "Guardar cambios" al final de la orden.</div>}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Totals + Notes */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0,1fr)' : '1fr 300px', gap: 20 }}>
         <div>
           <label style={{ fontSize: 11, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Notas
@@ -4535,7 +4676,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
       </div>
 
       {/* Bottom actions */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, paddingTop: 16, borderTop: '1px solid #222' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, paddingTop: 16, borderTop: '1px solid #222', flexWrap: 'wrap', gap: 8 }}>
         <div>
           {po.status === 'borrador' && (
             <Btn variant="danger" size="sm" onClick={() => { if (confirm('Eliminar esta OC?')) deletePO() }}>
@@ -4548,6 +4689,15 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           {dirty && <Btn variant="primary" onClick={guardar}><Save size={14} /> {saving ? 'Guardando...' : 'Guardar cambios'}</Btn>}
         </div>
       </div>
+
+      {/* Celular: el botón de guardar queda al final de una página larga. Con
+          cambios pendientes se pega abajo para que no se pierdan. */}
+      {isMobile && dirty && !itemAbierto && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1050, padding: '10px 12px calc(10px + env(safe-area-inset-bottom))', background: '#0f0f0fee', borderTop: '1px solid #2a2a2a', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ flex: 1, fontSize: 12, color: '#D97706' }}>Cambios sin guardar</span>
+          <Btn variant="primary" onClick={guardar}><Save size={14} /> {saving ? 'Guardando...' : 'Guardar'}</Btn>
+        </div>
+      )}
 
       {/* Modal del agente de cotización (dispatcher por proveedor) */}
       {showAgentModal && (() => {
@@ -4564,7 +4714,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
 
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-            <div style={{ background: '#141414', border: '1px solid rgba(168,85,247,0.4)', borderRadius: 16, padding: 24, width: 720, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ background: '#141414', border: '1px solid rgba(168,85,247,0.4)', borderRadius: 16, padding: isMobile ? 14 : 24, width: 720, maxWidth: 'calc(100% - 16px)', boxSizing: 'border-box', maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -4653,8 +4803,8 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
 
       {/* Add from catalog modal */}
       {showAddItem && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: isMobile ? 1150 : 1000 }}>
+          <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: isMobile ? 14 : 24, width: isMobile ? 'calc(100% - 16px)' : 600, maxWidth: '100%', boxSizing: 'border-box', maxHeight: isMobile ? '88vh' : '80vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Agregar del catálogo</div>
               <button onClick={() => setShowAddItem(false)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
@@ -4664,7 +4814,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
               <input value={catalogSearch} onChange={e => setCatalogSearch(e.target.value)} placeholder="Buscar producto..."
                 style={{
                   width: '100%', padding: '7px 10px 7px 30px', background: '#1e1e1e', border: '1px solid #333',
-                  borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box',
+                  borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 12, fontFamily: 'inherit', boxSizing: 'border-box',
                 }} />
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -4916,16 +5066,17 @@ function DocumentosSection({ poId, poNumero }: { poId: string; poNumero?: string
   }
 
   const peso = (b: number | null) => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'
+  const isMobile = useIsMobile()
 
   return (
-    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 16 }}>
+    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: isMobile ? 12 : 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
           Documentos del proveedor ({docs.length})
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <select value={tipo} onChange={e => setTipo(e.target.value)}
-            style={{ padding: '6px 10px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#eee', fontSize: 12, fontFamily: 'inherit' }}>
+            style={{ padding: '6px 10px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#eee', fontSize: isMobile ? 16 : 12, fontFamily: 'inherit', maxWidth: '100%' }}>
             {Object.entries(TIPO_DOC).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <input ref={fileRef} type="file" multiple accept=".pdf,image/*" style={{ display: 'none' }}
@@ -4945,6 +5096,21 @@ function DocumentosSection({ poId, poNumero }: { poId: string; poNumero?: string
         </div>
       ) : docs.map(d => {
         const cfg = TIPO_DOC[d.tipo] || TIPO_DOC.otro
+        if (isMobile) return (
+          <div key={d.id} style={{ display: 'flex', gap: 8, padding: '9px 0', borderBottom: '1px solid #1a1a1a', fontSize: 12, alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <a href={d.url} target="_blank" rel="noopener noreferrer"
+                style={{ color: '#A78BFA', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.nombre}>
+                {d.nombre}
+              </a>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, flexWrap: 'wrap', fontSize: 11, color: '#777' }}>
+                <Badge label={cfg.label} color={cfg.color} />
+                <span>{formatDate(d.created_at)}{d.subido_por ? ' · ' + d.subido_por.split(' ')[0] : ''}{d.bytes != null ? ' · ' + peso(d.bytes) : ''}</span>
+              </div>
+            </div>
+            <button onClick={() => borrar(d)} title="Borrar" style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 6 }}><Trash2 size={14} /></button>
+          </div>
+        )
         return (
           <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 80px 110px 24px', gap: 8, padding: '8px 0', borderBottom: '1px solid #1a1a1a', fontSize: 11, alignItems: 'center' }}>
             <Badge label={cfg.label} color={cfg.color} />
@@ -4985,10 +5151,11 @@ function PaymentsSection({ poId, poTotal, poCurrency, poStatus, onStatusChange }
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const pct = poTotal > 0 ? Math.min(100, (totalPaid / poTotal) * 100) : 0
   const fmtMoney = (n: number) => poCurrency === 'USD' ? FUSD(n) : F(n)
+  const isMobile = useIsMobile()
 
   return (
-    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+    <div style={{ marginTop: 20, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 12, padding: isMobile ? 12 : 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Pagos ({payments.length})</div>
         <Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12} /> Registrar pago</Btn>
       </div>
@@ -5008,7 +5175,16 @@ function PaymentsSection({ poId, poTotal, poCurrency, poStatus, onStatusChange }
       {loading ? <div style={{ fontSize: 11, color: '#555', padding: 10 }}>Cargando...</div> :
         payments.length === 0 ? <div style={{ fontSize: 11, color: '#555', padding: 10, textAlign: 'center' as const }}>Sin pagos registrados</div> :
         <div>
-          {payments.map(p => (
+          {payments.map(p => isMobile ? (
+            <div key={p.id} style={{ display: 'flex', gap: 8, padding: '9px 0', borderBottom: '1px solid #1a1a1a', fontSize: 12, alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: '#10B981', fontWeight: 600 }}>{fmtMoney(p.amount)} <span style={{ color: '#888', fontWeight: 400, fontSize: 11 }}>· {formatDate(p.payment_date)}</span></div>
+                <div style={{ color: '#888', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.method}{p.reference ? ' · ' + p.reference : ''}</div>
+                {p.receipt_url ? <a href={p.receipt_url} target="_blank" rel="noopener noreferrer" style={{ color: '#A78BFA', fontSize: 11 }}>Ver comprobante</a> : <span style={{ color: '#444', fontSize: 11 }}>Sin comprobante</span>}
+              </div>
+              <button onClick={() => handleDelete(p.id)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: 6 }}><Trash2 size={14} /></button>
+            </div>
+          ) : (
             <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 100px 110px 24px', gap: 8, padding: '8px 0', borderBottom: '1px solid #1a1a1a', fontSize: 11, alignItems: 'center' }}>
               <span style={{ color: '#888' }}>{formatDate(p.payment_date)}</span>
               <span style={{ color: '#aaa' }}>{p.method}{p.reference ? ' · ' + p.reference : ''}</span>
@@ -5118,9 +5294,10 @@ function RegistrarPagoModal({ poId, poCurrency, poTotal, totalPaid, poStatus, on
     onCreated(newStatus)
   }
 
-  const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }
-  const modalStyle: React.CSSProperties = { background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: 24, width: 520, maxHeight: '90vh', overflowY: 'auto' }
-  const inpStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }
+  const isMobile = useIsMobile()
+  const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: isMobile ? 1150 : 1100 }
+  const modalStyle: React.CSSProperties = { background: '#141414', border: '1px solid #2a2a2a', borderRadius: isMobile ? '16px 16px 0 0' : 16, padding: isMobile ? 16 : 24, width: isMobile ? '100%' : 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }
+  const inpStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', background: '#0e0e0e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', minWidth: 0, maxWidth: '100%' }
   const lblStyle: React.CSSProperties = { fontSize: 11, color: '#666', textTransform: 'uppercase' as const, letterSpacing: '0.06em', fontWeight: 600, marginBottom: 4, display: 'block' }
 
   return (
