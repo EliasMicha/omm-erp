@@ -392,16 +392,16 @@ export default function Compras() {
   return (
     <div style={{ padding: isMobile ? '16px 12px' : '24px 28px' }}>
       {/* Tab navigation */}
-      <div style={{ display: 'flex', gap: isMobile ? 2 : 4, marginBottom: 20, borderBottom: '1px solid #222', paddingBottom: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: isMobile ? 2 : 4, marginBottom: isMobile ? 14 : 20, borderBottom: '1px solid #222', paddingBottom: isMobile ? 0 : 8, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : undefined, paddingLeft: isMobile ? 50 : 0, WebkitOverflowScrolling: 'touch' as const }}>
         {([
           { key: 'dashboard', label: 'Dashboard', icon: ShoppingCart },
-          { key: 'lista', label: 'Órdenes de compra', icon: FileText },
+          { key: 'lista', label: isMobile ? 'Órdenes' : 'Órdenes de compra', icon: FileText },
           { key: 'seguimiento', label: 'Seguimiento', icon: ClipboardList },
           { key: 'proveedores', label: 'Proveedores', icon: Users2 },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setView(key)}
             style={{
-              padding: '8px 16px', borderRadius: '8px 8px 0 0', fontSize: 12, cursor: 'pointer',
+              padding: isMobile ? '8px 10px' : '8px 16px', borderRadius: '8px 8px 0 0', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
               fontFamily: 'inherit', fontWeight: view === key ? 600 : 400, border: 'none',
               background: view === key ? '#1e1e1e' : 'transparent',
               color: view === key ? '#10B981' : '#666',
@@ -1680,11 +1680,11 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
       <SectionHeader title="Órdenes de compra"
         subtitle={`${lista.length} órdenes | MXN: ${F(totalFilteredMXN)} · USD: ${FUSD(totalFilteredUSD)}`}
         action={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Btn onClick={() => setShowFromPDF(true)} style={{ borderColor: '#7C3AED', color: '#A78BFA' }}><Sparkles size={14} /> Desde PDF (IA)</Btn>
-          <Btn onClick={() => setShowFromQuote(true)}><Copy size={14} /> Desde cotización</Btn>
-            <Btn onClick={() => setShowMasivas(true)} style={{ borderColor: '#10B981', color: '#10B981' }}><ClipboardList size={14} /> Generar en bloque</Btn>
-            <Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={14} /> Nueva OC</Btn>
+          <div style={isMobile ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 6 } : { display: 'flex', gap: 8 }}>
+            <Btn size={isMobile ? 'sm' : undefined} onClick={() => setShowFromPDF(true)} style={{ borderColor: '#7C3AED', color: '#A78BFA', ...(isMobile ? { justifyContent: 'center', whiteSpace: 'nowrap', padding: '9px 6px', fontSize: 12 } : {}) }}><Sparkles size={14} /> Desde PDF (IA)</Btn>
+            <Btn size={isMobile ? 'sm' : undefined} onClick={() => setShowFromQuote(true)} style={isMobile ? { justifyContent: 'center', whiteSpace: 'nowrap', padding: '9px 6px', fontSize: 12 } : undefined}><Copy size={14} /> Desde cotización</Btn>
+            <Btn size={isMobile ? 'sm' : undefined} onClick={() => setShowMasivas(true)} style={{ borderColor: '#10B981', color: '#10B981', ...(isMobile ? { justifyContent: 'center', whiteSpace: 'nowrap', padding: '9px 6px', fontSize: 12 } : {}) }}><ClipboardList size={14} /> Generar en bloque</Btn>
+            <Btn size={isMobile ? 'sm' : undefined} variant="primary" onClick={() => setShowNew(true)} style={isMobile ? { justifyContent: 'center', whiteSpace: 'nowrap', padding: '9px 6px', fontSize: 12 } : undefined}><Plus size={14} /> Nueva OC</Btn>
           </div>
         } />
 
@@ -1711,12 +1711,39 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
           <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar OC, proveedor, cotización, lead..."
             style={{
-              width: '100%', padding: '7px 10px 7px 30px', background: '#1e1e1e',
-              border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'inherit',
+              width: '100%', padding: isMobile ? '9px 10px 9px 30px' : '7px 10px 7px 30px', background: '#1e1e1e',
+              border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 12, fontFamily: 'inherit',
               boxSizing: 'border-box',
             }} />
         </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {isMobile && (() => {
+          // Celular: los tres grupos de chips ocupaban media pantalla antes de
+          // la primera orden. Aquí son tres menús en un renglón.
+          const sel = (activo: boolean): React.CSSProperties => ({
+            width: '100%', minWidth: 0, padding: '8px 6px', borderRadius: 8, fontSize: 16, fontFamily: 'inherit',
+            background: activo ? '#10B98118' : '#1e1e1e', color: activo ? '#10B981' : '#bbb',
+            border: `1px solid ${activo ? '#10B98166' : '#333'}`, boxSizing: 'border-box',
+          })
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 6, flex: '1 1 100%' }}>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={sel(filterStatus !== 'todas')} aria-label="Estado">
+                <option value="todas">Estado</option>
+                {Object.keys(PO_STATUS_CFG).map(s => <option key={s} value={s}>{PO_STATUS_CFG[s as POStatus].label}</option>)}
+              </select>
+              <select value={filterSpec} onChange={e => setFilterSpec(e.target.value)} style={sel(filterSpec !== 'todas')} aria-label="Especialidad">
+                <option value="todas">Área</option>
+                {['esp', 'elec', 'ilum', 'cort'].map(f => <option key={f} value={f}>{SPECIALTY_CONFIG[f as ProjectLine].label}</option>)}
+              </select>
+              <select value={filterPago} onChange={e => setFilterPago(e.target.value as any)} style={sel(filterPago !== 'todas')} aria-label="Pago">
+                <option value="todas">Pago</option>
+                <option value="vencido">Pago vencido</option>
+                <option value="semana">Por pagar ≤7d</option>
+                <option value="sin_fecha">Sin fecha de pago</option>
+              </select>
+            </div>
+          )
+        })()}
+        {!isMobile && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {['todas', ...Object.keys(PO_STATUS_CFG)].map(s => {
             const on = filterStatus === s
             const cfg = s !== 'todas' ? PO_STATUS_CFG[s as POStatus] : null
@@ -1729,8 +1756,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               }}>{s === 'todas' ? 'Todas' : cfg?.label}</button>
             )
           })}
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        </div>}
+        {!isMobile && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {['todas', 'esp', 'elec', 'ilum', 'cort'].map(f => {
             const on = filterSpec === f
             const cfg = f !== 'todas' ? SPECIALTY_CONFIG[f as ProjectLine] : null
@@ -1743,8 +1770,8 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               }}>{f === 'todas' ? 'Todas' : cfg?.icon + ' ' + cfg?.label}</button>
             )
           })}
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        </div>}
+        {!isMobile && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {([
             { k: 'todas', label: 'Todo pago', color: '#10B981' },
             { k: 'vencido', label: 'Pago vencido', color: '#DC2626' },
@@ -1761,7 +1788,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
               }}>{c.label}</button>
             )
           })}
-        </div>
+        </div>}
         {colFilters.activeCount > 0 && (
           <button onClick={colFilters.clearAll} title="Quitar los filtros puestos en los encabezados de la tabla" style={{
             padding: '4px 10px', borderRadius: 20, fontSize: 10, cursor: 'pointer', fontFamily: 'inherit',
@@ -1769,11 +1796,68 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
           }}>✕ Quitar filtros de columna ({colFilters.activeCount})</button>
         )}
       </div>
-      <div style={{ fontSize: 10, color: '#555', margin: '-8px 0 10px' }}>
+      {!isMobile && <div style={{ fontSize: 10, color: '#555', margin: '-8px 0 10px' }}>
         Tip: da clic en el encabezado de una columna (Proveedor, Lead, Fase, Pago, Pago límite…) para filtrar por sus valores.
-      </div>
+      </div>}
 
-      {loading ? <Loading /> : (
+      {loading ? <Loading /> : isMobile ? (
+        <div style={{ border: '1px solid #222', borderRadius: 10, overflow: 'hidden' }}>
+          {lista.length === 0 && <EmptyState message={colFilters.activeCount > 0 ? 'Ninguna orden cumple los filtros de columna' : 'Sin órdenes de compra'} />}
+          {lista.map((o, i) => {
+            const st = PO_STATUS_CFG[o.status]
+            const summary = cotejoSummary[o.id]
+            const esServ = (o as any).tipo === 'servicio'
+            const allCotejado = summary && summary.cotejados > 0 && summary.cotejados === summary.total
+            const noCotejado = !summary || summary.cotejados === 0
+            const cotejoColor = esServ ? '#A78BFA' : allCotejado ? '#10B981' : noCotejado ? '#6B7280' : '#D97706'
+            const cotejoLabel = esServ ? 'Servicio' : !summary || summary.total === 0 ? 'Sin items' : allCotejado ? `Cotejo ✓` : noCotejado ? 'Sin cotejar' : `Cotejo ${summary.cotejados}/${summary.total}`
+            const total = totalMostrado(o)
+            const fmt = o.currency === 'USD' ? FUSD : F
+            const pagado = pagosPorOC[o.id]?.pagado || 0
+            const completo = estaPagada(o)
+            const pagoLabel = o.status === 'cancelada' && pagado <= 0 ? null : pagado <= 0 ? 'Pendiente' : completo ? 'Pagado' : `Faltan ${fmt(total - pagado)}`
+            const pagoColor = pagado <= 0 ? '#6B7280' : completo ? '#10B981' : '#D97706'
+            const ep = !completo ? estadoPago(o.fecha_maxima_pago, { pagadaAt: o.pagada_at, cancelada: o.status === 'cancelada' }) : null
+            const motivo = motivoNoPagable(o)
+            const sub = [getLeadName(o), getQuotName(o)].filter(Boolean).join(' · ')
+            return (
+              <div key={o.id} onClick={() => onOpen(o.id)}
+                style={{ display: 'flex', gap: 10, padding: '10px 12px', borderTop: i ? '1px solid #1c1c1c' : 'none', cursor: 'pointer', background: selPago.has(o.id) ? '#10B98110' : undefined }}>
+                {/* Mismo ancho con o sin casilla, para que los folios queden alineados. */}
+                <span onClick={e => e.stopPropagation()} style={{ paddingTop: 2, width: 18, flexShrink: 0 }}>
+                  {!motivo && (
+                    <input type="checkbox" checked={selPago.has(o.id)} onChange={() => togglePago(o.id)}
+                      title="Agregar al pago masivo" style={{ width: 18, height: 18, margin: 0, accentColor: '#10B981' }} />
+                  )}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{folioOC(o)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: allCotejado ? '#10B981' : noCotejado ? '#ddd' : '#D97706', whiteSpace: 'nowrap' }}>{fmt(total)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#ccc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
+                    {(o.supplier as any)?.name || 'Sin proveedor'}{o.descripcion ? ` · ${o.descripcion}` : ''}
+                  </div>
+                  {sub && <div style={{ fontSize: 11, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>{sub}</div>}
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+                    <Badge label={st.label} color={st.color} />
+                    <Badge label={cotejoLabel} color={cotejoColor} />
+                    {pagoLabel && <Badge label={pagoLabel} color={pagoColor} />}
+                    {ep && ep.estado !== 'sin_fecha' && ep.estado !== 'pagada' && (
+                      <span style={{ fontSize: 10, color: ep.color, fontWeight: ep.estado === 'vencido' || ep.estado === 'hoy' ? 700 : 400 }}>{ep.label}</span>
+                    )}
+                    {(docsPorOC[o.id] || 0) > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10, color: '#A78BFA' }}><Paperclip size={10} />{docsPorOC[o.id]}</span>}
+                    {!completo && o.status !== 'cancelada' && (
+                      <button onClick={e => { e.stopPropagation(); setPagandoOC(o) }}
+                        style={{ marginLeft: 'auto', background: '#10B98118', border: '1px solid #10B98144', borderRadius: 6, color: '#10B981', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, padding: '3px 8px' }}>+ Pago</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
         <div style={{ overflowX: 'auto' }}>
           <Table>
             <thead><tr>

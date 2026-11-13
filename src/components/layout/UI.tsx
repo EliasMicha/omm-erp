@@ -347,14 +347,17 @@ function enCelular(): boolean {
 export function SectionHeader({ title, subtitle, action }: {
   title: string; subtitle?: string; action?: ReactNode
 }) {
+  // En celular los botones de la derecha bajan a su propio renglón: lado a lado
+  // aplastaban el título hasta dejarlo en una palabra por línea.
+  const cel = enCelular()
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: cel ? 'wrap' : 'nowrap', rowGap: 10 }}>
       {/* En celular el botón de menú vive fijo en la esquina: se le deja su espacio. */}
-      <div style={{ paddingLeft: enCelular() ? 50 : 0, minWidth: 0 }}>
+      <div style={{ paddingLeft: cel ? 50 : 0, minWidth: 0, flex: cel ? '1 1 100%' : undefined }}>
         <div style={{ fontSize: 18, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{title}</div>
         {subtitle && <div style={{ fontSize: 12, color: '#555' }}>{subtitle}</div>}
       </div>
-      {action}
+      {action && (cel ? <div style={{ width: '100%', minWidth: 0 }}>{action}</div> : action)}
     </div>
   )
 }
