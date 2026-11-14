@@ -3,12 +3,14 @@ import { supabase } from '../lib/supabase'
 import { SectionHeader, KpiCard, Table, Th, Td, Badge, Btn, EmptyState } from '../components/layout/UI'
 import { F, PHASE_CONFIG } from '../lib/utils'
 import { ANTHROPIC_API_KEY } from '../lib/config'
-import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles, BoxesIcon, Trash2 } from 'lucide-react'
+import { Package, Plus, Search, Edit, X, Tag, Layers, Upload, Loader2, Sparkles, BoxesIcon, Trash2, RefreshCw } from 'lucide-react'
 import { PurchasePhase } from '../types'
 import ImageUpload from '../components/ImageUpload'
 import ImportarCatalogo from '../components/ImportarCatalogo'
 import { useIsMobile } from '../lib/useIsMobile'
 import { useFiltroInicialDeArea } from '../lib/miArea'
+import PreciosSyscom from '../components/syscom/PreciosSyscom'
+import BuscarSyscom from '../components/syscom/BuscarSyscom'
 
 interface Supplier { id: string; name: string }
 
@@ -76,6 +78,12 @@ export default function Catalogo() {
   useFiltroInicialDeArea(sp => setFilterSpecialty(sp as 'esp' | 'ilum' | 'elec'))
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [showImport, setShowImport] = useState(false)
+  // Syscom (2026-11-14): diferencias de precio por aprobar y alta desde la API
+  const [showPreciosSyscom, setShowPreciosSyscom] = useState(false)
+  const [showBuscarSyscom, setShowBuscarSyscom] = useState(false)
+  const [difSyscom, setDifSyscom] = useState(0)
+  const contarDifSyscom = () => { supabase.from('syscom_precios').select('catalog_product_id', { count: 'exact', head: true }).eq('estado', 'distinto').then(({ count }) => setDifSyscom(count || 0)) }
+  useEffect(() => { contarDifSyscom() }, [])
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
   const [aiSearching, setAiSearching] = useState(false)
@@ -509,6 +517,10 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
         </div>
         <div style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
           <input type="file" ref={importRef} accept=".csv,.txt,.xlsx,.tsv" style={{ display: 'none' }} onChange={handleAIImport} />
+          <Btn size="sm" variant="default" onClick={() => setShowPreciosSyscom(true)} style={difSyscom > 0 ? { borderColor: '#F59E0B66', color: '#F59E0B' } : undefined}>
+            <RefreshCw size={12} /> Precios Syscom{difSyscom > 0 ? ` (${difSyscom})` : ''}
+          </Btn>
+          <Btn size="sm" variant="default" onClick={() => setShowBuscarSyscom(true)}><Search size={12} /> Buscar en Syscom</Btn>
           <Btn size="sm" variant="default" onClick={() => setShowImport(true)}><Upload size={12} /> Importar lista de precios</Btn>
           <Btn size="sm" variant="default" onClick={() => importRef.current?.click()}>{importing ? <><Loader2 size={12} style={{animation:'spin 1s linear infinite'}} /> Procesando con IA...</> : <><Sparkles size={12} /> Importar con IA</>}</Btn>
           <Btn size="sm" variant="primary" onClick={openNew}><Plus size={12} /> Nuevo producto</Btn>
@@ -520,6 +532,14 @@ IMPORTANT: Do NOT include cost or price. Return ONLY valid JSON, no markdown.`
           onCerrar={() => setShowImport(false)}
           onListo={() => cargarCatalogo()}
         />
+      )}
+
+      {showPreciosSyscom && (
+        <PreciosSyscom onClose={() => { setShowPreciosSyscom(false); contarDifSyscom() }} onCambio={() => cargarCatalogo()} />
+      )}
+      {showBuscarSyscom && (
+        <BuscarSyscom especialidad={filterSpecialty}
+          onClose={() => { setShowBuscarSyscom(false); cargarCatalogo() }} />
       )}
 
       {/* Bulk actions bar */}

@@ -12,6 +12,8 @@ import BotonCatalogo from '../components/BotonCatalogo'
 import ImageUpload from '../components/ImageUpload'
 import VersionManager, { VersionSnapshot } from '../components/VersionManager'
 import { useIsMobile } from '../lib/useIsMobile'
+import BuscarSyscom from '../components/syscom/BuscarSyscom'
+import { useExistenciaSyscom, InsigniaExistencia, ExistenciaSyscomCtx } from '../components/syscom/ExistenciaSyscom'
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -282,6 +284,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
                 {!p.isService && p.laborCost ? ' · M.O. $' + fmt(p.laborCost) : ''}
                 {showInt ? <span style={{ color: p.margin >= 25 ? '#10B981' : p.margin >= 15 ? '#D97706' : '#DC2626' }}>{' · MG ' + p.margin + '%'}</span> : null}
               </div>
+              <div style={{ marginTop: 2 }}><InsigniaExistencia catalogId={p.catalogId} compacto /></div>
             </div>
             <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981', whiteSpace: 'nowrap' as const }}>${fmt(total)}</span>
           </div>
@@ -311,6 +314,7 @@ function ProductRow({ p, onUpdate, onRemove, onUpdateAll, showInt, duplicateCoun
           {p.isService && <span style={{ fontSize: 9, color: '#D97706', background: '#D9770618', padding: '1px 5px', borderRadius: 4 }}>Servicio</span>}
           {p.bundleName && <span style={{ fontSize: 9, color: '#7C3AED', background: '#7C3AED18', padding: '1px 5px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 2 }}><Package size={8} /> {p.bundleName}</span>}
           {duplicateCount > 1 && <span style={{ fontSize: 9, color: '#D97706', background: '#D9770618', padding: '1px 5px', borderRadius: 4 }}>×{duplicateCount}</span>}
+          <InsigniaExistencia catalogId={p.catalogId} />
         </div>
       </td>
       {p.isService ? (<>
@@ -1454,9 +1458,10 @@ function AIImportModal({ cotId, areas, activeSysIds, currency, tipoCambio, onClo
 // ═══════════════════════════════════════════════════════════════════
 // CATALOG SEARCH + CREATE PRODUCT MODAL
 // ═══════════════════════════════════════════════════════════════════
-function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemName }: {
+function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemName, onBuscarSyscom }: {
   onClose: () => void; onSelect: (p: CatProduct) => void; onCreateNew: () => void; systemName: string
   onSelectBundle?: (bundle: CatBundle) => void
+  onBuscarSyscom?: () => void
 }) {
   const isMobile = useIsMobile()
   const [catalog, setCatalog] = useState<CatProduct[]>([])
@@ -1531,6 +1536,7 @@ function CatalogModal({ onClose, onSelect, onCreateNew, onSelectBundle, systemNa
                 <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} style={{ cursor: 'pointer' }} />
                 Ver todo el catálogo
               </label>
+              {onBuscarSyscom && <Btn onClick={onBuscarSyscom}><Search size={14} /> Syscom</Btn>}
               <Btn variant="primary" onClick={onCreateNew}><Plus size={14} /> Crear nuevo</Btn>
             </>
           )}
@@ -2345,6 +2351,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
   const [clientName, setClientName] = useState('')
   const [addingTo, setAddingTo] = useState<{ areaId: string; systemId: string } | null>(null)
   const [creatingProduct, setCreatingProduct] = useState(false)
+  const [buscandoSyscom, setBuscandoSyscom] = useState(false)
   const [showEditCot, setShowEditCot] = useState(false)
   const [showAIImport, setShowAIImport] = useState(false)
   const [selectedProdIds, setSelectedProdIds] = useState<Set<string>>(new Set())
@@ -3273,10 +3280,14 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
     }
   }
 
+  // Existencia de Syscom (revisión nocturna) junto a cada producto. Va ARRIBA del return temprano.
+  const existenciaSyscom = useExistenciaSyscom(products.map(p => p.catalogId))
+
   if (loading) return <Loading />
 
   return (
     <MonedaCot.Provider value={{ moneda: config.currency, tc: Number(config.tipoCambio) || 0 }}>
+    <ExistenciaSyscomCtx.Provider value={existenciaSyscom}>
     <div style={{ display: 'flex', flexDirection: 'column' as const, height: '100vh', overflow: 'hidden' }}>
       {/* Top bar */}
       <div style={{ padding: isMobile ? '8px 12px 8px 60px' : '7px 16px', minHeight: isMobile ? 40 : undefined, borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10, flexShrink: 0, background: '#111', flexWrap: 'wrap' }}>
@@ -3579,7 +3590,18 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
           onClose={() => setAddingTo(null)}
           onSelect={handleAddFromCatalog}
           onSelectBundle={handleAddBundle}
+          onBuscarSyscom={() => setBuscandoSyscom(true)}
           onCreateNew={() => setCreatingProduct(true)} />
+      )}
+
+      {/* Buscar en Syscom: si no está en el catálogo lo da de alta y lo agrega aquí */}
+      {buscandoSyscom && addingTo && (
+        <BuscarSyscom
+          sistema={sysDbName(addingTo.systemId)}
+          especialidad="esp"
+          textoElegir="Agregar"
+          onClose={() => setBuscandoSyscom(false)}
+          onElegir={(prod) => { setBuscandoSyscom(false); handleAddFromCatalog(prod) }} />
       )}
 
       {/* Create product modal */}
@@ -3769,6 +3791,7 @@ export default function CotEditorESP({ cotId, onBack, onSwitchVersion }: { cotId
         onClose={() => setShowEditCot(false)}
         onSaved={(n, cl, pId, pName) => { setCotName(n); setClientName(cl); setProjectId(pId); setProjectName(pName); setShowEditCot(false) }} />}
     </div>
+    </ExistenciaSyscomCtx.Provider>
     </MonedaCot.Provider>
   )
 }

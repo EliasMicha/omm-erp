@@ -13,6 +13,7 @@ import { F, FUSD, FCUR, SPECIALTY_CONFIG, PHASE_CONFIG, formatDate } from '../li
 import { Badge, Btn, KpiCard, Table, Th, Td, ThFilter, useColumnFilters, Loading, SectionHeader, EmptyState } from '../components/layout/UI'
 import FolioChip from '../components/FolioChip'
 import { folioOC } from '../lib/folios'
+import { useExistenciaSyscom, InsigniaExistencia } from '../components/syscom/ExistenciaSyscom'
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download, Paperclip } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
@@ -3717,6 +3718,8 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   // editan en una hoja aparte (itemAbierto). Van ARRIBA del return temprano.
   const isMobile = useIsMobile()
   const [itemAbierto, setItemAbierto] = useState<string | null>(null)
+  // Existencia de Syscom (revisión nocturna) junto a cada partida.
+  const existenciaSyscom = useExistenciaSyscom(items.map(i => i.catalog_product_id))
 
   if (loading || !po) return <div style={{ padding: isMobile ? '12px' : '24px 28px' }}><Loading /></div>
 
@@ -4370,6 +4373,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                       <span>{conCotejo ? (it.real_quantity ?? it.quantity) : it.quantity} {it.unit} × {F(conCotejo ? (it.real_unit_cost ?? it.unit_cost) : it.unit_cost)}</span>
                       {verCotejo && <span style={{ color: cotejoColor, fontWeight: 600 }}>· {cotejoLabel}</span>}
                       {verRecibido && <span style={{ color: rec === 0 ? '#555' : rec >= Number(it.quantity) ? '#10B981' : '#D97706' }}>· recibido {rec}</span>}
+                      <InsigniaExistencia info={it.catalog_product_id ? existenciaSyscom.get(it.catalog_product_id) : null} compacto />
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -4408,6 +4412,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
                       style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 12, fontFamily: 'inherit', width: '100%', outline: 'none' }} />
                   ) : <span style={{ color: '#fff', fontSize: 12 }}>{it.name}</span>}
                   {it.description && <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>{it.description}</div>}
+                  {it.catalog_product_id && existenciaSyscom.get(it.catalog_product_id) && <div style={{ marginTop: 3 }}><InsigniaExistencia info={existenciaSyscom.get(it.catalog_product_id)} /></div>}
                 </Td>
                 <Td>
                   {canEdit ? (
