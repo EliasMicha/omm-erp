@@ -1538,7 +1538,7 @@ function CotizacionPdfInner() {
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 10, fontWeight: 600, color: '#111', marginBottom: 4 }}>Tipo de cambio</div>
               <div style={{ fontSize: 10, color: '#555', lineHeight: 1.6 }}>
-                Los montos en esta cotización están expresados en Dólares Americanos (USD). Para referencia de facturación en Pesos Mexicanos (MXN), se utiliza un tipo de cambio de <strong>${tipoCambio.toFixed(2)} MXN por USD</strong>, calculado a la fecha de emisión. El tipo de cambio aplicable al momento del pago será el publicado por el Banco de México (DOF) en la fecha efectiva de cada abono.
+                Los montos en esta cotización están expresados en Dólares Americanos (USD). Para referencia de facturación en Pesos Mexicanos (MXN), se utiliza un tipo de cambio de <strong>${tipoCambio.toFixed(2)} MXN por USD</strong>, calculado a la fecha de emisión. El tipo de cambio aplicable a cada pago será el tipo de cambio a la venta publicado por BBVA México el día en que se realice dicho pago.
               </div>
             </div>
           )}
