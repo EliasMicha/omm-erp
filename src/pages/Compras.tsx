@@ -6,6 +6,7 @@ import { useFiltroInicialDeArea } from '../lib/miArea'
 import { soloSistemasVendidos, sistemasApagados } from '../lib/sistemasVendidos'
 import { traerTodo } from '../lib/paginado'
 import { insertarOC } from '../lib/oc'
+import { planDeCotizacion, llaveProducto, type RenglonPlan } from '../lib/planCompra'
 import { fetchAllActiveCatalog } from '../lib/catalog'
 import { ANTHROPIC_API_KEY } from '../lib/config'
 import { Project, CatalogProduct, ProjectLine, PurchasePhase } from '../types'
@@ -2897,78 +2898,15 @@ function OCMasivasModal({ onClose, onCreadas }: { onClose: () => void; onCreadas
     if (!quote) return
     setAnalizando(true); setError(''); setGrupos([]); setSinProveedor([]); setAnalizado(false)
     try {
-      const cot: any = quotations.find(q => q.id === quote)
-      const esDist = cot?.specialty === 'dist'
-      let monedaDist: Moneda = 'USD'
-      if (esDist) { try { monedaDist = normalizarMoneda(JSON.parse(cot?.notes || '{}').currency, 'USD') } catch { /* notas libres */ } }
-
-      // Mismos criterios que "Desde cotización": Distribución guarda sus
-      // renglones sin área y sin type='material'.
-      let items: any[] = []
-      if (esDist) {
-        const { data } = await supabase.from('quotation_items').select('*').eq('quotation_id', quote).order('order_index')
-        items = data || []
-      } else {
-        const { data: areas } = await supabase.from('quotation_areas').select('id').eq('quotation_id', quote)
-        const areaIds = (areas || []).map((a: any) => a.id)
-        if (!areaIds.length) { setAnalizado(true); setAnalizando(false); return }
-        const { data } = await supabase.from('quotation_items').select('*').in('area_id', areaIds).eq('type', 'material').order('order_index')
-        items = data || []
-      }
-
-      // Un sistema apagado en la cotización no se vendió: no se le compra nada.
-      const antes = items.length
-      items = soloSistemasVendidos(items, cot?.notes)
-      setOmitidos(antes - items.length)
-
-      // El catálogo manda en proveedor, moneda y costo.
-      const catIds = [...new Set(items.map(i => i.catalog_product_id).filter(Boolean))]
-      const catMap = new Map<string, any>()
-      if (catIds.length) {
-        const { data: cps } = await supabase.from('catalog_products').select('id,provider,supplier_id,moneda,cost,unit').in('id', catIds)
-        ;(cps || []).forEach((c: any) => catMap.set(c.id, c))
-      }
-
-      // Lo que ya se pidió en OCs anteriores de esta misma cotización no se
-      // vuelve a pedir: si no, cada vez que se corre esto se duplica la compra.
-      const { data: posPrev } = await supabase.from('purchase_orders').select('id,status').eq('quotation_id', quote)
-      const poIds = (posPrev || []).filter((p: any) => p.status !== 'cancelada').map((p: any) => p.id)
-      const ordenado = new Map<string, number>()
-      if (poIds.length) {
-        const { data: prev } = await supabase.from('po_items').select('catalog_product_id,name,quantity').in('purchase_order_id', poIds)
-        ;(prev || []).forEach((pi: any) => {
-          const k = pi.catalog_product_id || pi.name
-          ordenado.set(k, (ordenado.get(k) || 0) + (Number(pi.quantity) || 0))
-        })
-      }
-
-      // Consolidar el mismo producto repetido en varias áreas.
-      const consolidado = new Map<string, any>()
-      for (const it of items) {
-        const cat = it.catalog_product_id ? catMap.get(it.catalog_product_id) : null
-        const costo = esDist ? (Number(it.cost) || 0) : (Number(cat?.cost) || Number(it.cost) || 0)
-        const moneda: Moneda = esDist ? monedaDist : monedaDeCosto(cat || { moneda: (it as any).provider_currency })
-        const supplierId: string | null = cat?.supplier_id || it.supplier_id || null
-        const proveedor = cat?.provider || it.provider || (esDist ? it.marca : '') || ''
-        const k = it.catalog_product_id || it.name
-        const prev = consolidado.get(k)
-        if (prev) { prev.cantidad += Number(it.quantity) || 0; continue }
-        consolidado.set(k, {
-          key: k, catalog_product_id: it.catalog_product_id || null,
-          name: it.name, description: it.description || null,
-          marca: it.marca || null, modelo: it.modelo || null, system: it.system || null,
-          unit: cat?.unit || 'pza', purchase_phase: (it.purchase_phase || 'inicio') as PurchasePhase,
-          cantidad: Number(it.quantity) || 0, costo, moneda, supplierId, proveedor,
-        })
-      }
-
-      // Descontar lo ya ordenado.
+      // La cuenta vive en lib/planCompra: la misma que usa "Desde cotización"
+      // dentro de una orden, así las dos pantallas dicen lo mismo.
+      const plan = await planDeCotizacion(quote)
+      setOmitidos(plan.omitidos)
       let cerrados = 0
       const pendientes: any[] = []
-      for (const it of consolidado.values()) {
-        const falta = it.cantidad - (ordenado.get(it.key) || 0)
-        if (falta <= 0) { cerrados++; continue }
-        pendientes.push({ ...it, cantidad: falta })
+      for (const it of plan.renglones) {
+        if (it.falta <= 0) { cerrados++; continue }
+        pendientes.push({ ...it, cantidad: it.falta, purchase_phase: (it.purchase_phase || 'inicio') as PurchasePhase })
       }
       setYaOrdenado(cerrados)
 
@@ -3585,6 +3523,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   const [folioRepes, setFolioRepes] = useState<FolioRepetido[]>([])
   const [saving, setSaving] = useState(false)
   const [showAddItem, setShowAddItem] = useState(false)
+  const [showDesdeCot, setShowDesdeCot] = useState(false)
   const [catalogSearch, setCatalogSearch] = useState('')
   // Agentes/playbooks de cotización por proveedor (dispatcher)
   const [playbooks, setPlaybooks] = useState<Array<{ id: string; supplier_id: string; name: string; method: string; config: any; active: boolean }>>([])
@@ -4343,6 +4282,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
             <div style={{ display: 'flex', gap: 6 }}>
               <Btn size="sm" variant={esServicio ? 'primary' : 'default'} onClick={addManualItem}><Plus size={12} /> {esServicio ? 'Concepto' : 'Manual'}</Btn>
               {/* El catálogo es de productos: en una orden de servicio no aplica. */}
+              {!esServicio && po.quotation_id && <Btn size="sm" onClick={() => setShowDesdeCot(true)}><ClipboardList size={12} /> Desde cotización</Btn>}
               {!esServicio && <Btn size="sm" variant="primary" onClick={() => setShowAddItem(true)}><Package size={12} /> Del catálogo</Btn>}
             </div>
           )}
@@ -4890,6 +4830,15 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
         )
       })()}
 
+      {showDesdeCot && po && (
+        <AgregarDesdeCotizacion po={po} items={items} onClose={() => setShowDesdeCot(false)}
+          onListo={(nuevos, actualizados) => {
+            setItems(prev => [...prev.map(it => actualizados.find(a => a.id === it.id) || it), ...nuevos])
+            setShowDesdeCot(false)
+            setDirty(true)
+          }} />
+      )}
+
       {/* Add from catalog modal */}
       {showAddItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: isMobile ? 1150 : 1000 }}>
@@ -4931,6 +4880,197 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     {po && po.tipo === 'servicio' && <CuentaSubcontratista poId={po.id} />}
     {po && <PaymentsSection poId={po.id} poTotal={po.total} poCurrency={po.currency} poStatus={po.status} onStatusChange={(newStatus) => setPO({ ...po, status: newStatus })} />}
     {po && <DocumentosSection poId={po.id} poNumero={folioOC(po)} />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  AGREGAR DESDE LA COTIZACIÓN (dentro de una orden)  — 2026-11-25
+//
+//  Para lo que se olvidó al armar la orden. Lista lo vendido en la cotización
+//  de la orden con lo ya pedido y lo que falta (lib/planCompra, la misma cuenta
+//  que "Generar en bloque"), y lo agrega CON su producto de catálogo. Así queda
+//  ligado y cuenta como pedido en Seguimiento y en el siguiente bloque. Meterlo
+//  a mano (sin catálogo y con otro texto) no se liga: por eso existe esto.
+function AgregarDesdeCotizacion({ po, items, onClose, onListo }: {
+  po: PurchaseOrder
+  items: POItem[]
+  onClose: () => void
+  onListo: (nuevos: POItem[], actualizados: POItem[]) => void
+}) {
+  const isMobile = useIsMobile()
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState('')
+  const [renglones, setRenglones] = useState<RenglonPlan[]>([])
+  const [omitidos, setOmitidos] = useState(0)
+  const [verTodo, setVerTodo] = useState(false)
+  const [soloProveedor, setSoloProveedor] = useState(false)
+  const [busca, setBusca] = useState('')
+  const [sel, setSel] = useState<Record<string, number>>({})
+  const [guardando, setGuardando] = useState(false)
+  const monedaOC: Moneda = normalizarMoneda(po.currency)
+
+  useEffect(() => {
+    let vivo = true
+    if (!po.quotation_id) { setCargando(false); return }
+    planDeCotizacion(po.quotation_id)
+      .then(p => { if (vivo) { setRenglones(p.renglones); setOmitidos(p.omitidos) } })
+      .catch(e => { if (vivo) setError(e?.message || String(e)) })
+      .finally(() => { if (vivo) setCargando(false) })
+    return () => { vivo = false }
+  }, [po.quotation_id])
+
+  const q = busca.trim().toLowerCase()
+  const visibles = renglones.filter(r =>
+    (verTodo || r.falta > 0) &&
+    (!soloProveedor || r.supplierId === po.supplier_id) &&
+    (!q || (r.name + ' ' + (r.modelo || '') + ' ' + (r.marca || '') + ' ' + r.proveedor).toLowerCase().includes(q)))
+    .sort((a, b) => (Number(b.supplierId === po.supplier_id) - Number(a.supplierId === po.supplier_id)) || (b.falta - a.falta) || a.name.localeCompare(b.name))
+  const completos = renglones.filter(r => r.falta <= 0).length
+  const elegidos = Object.entries(sel).filter(([, n]) => n > 0)
+
+  function toggle(r: RenglonPlan) {
+    setSel(prev => {
+      const n = { ...prev }
+      if (n[r.key] != null) delete n[r.key]
+      else n[r.key] = r.falta > 0 ? r.falta : r.cantidad || 1
+      return n
+    })
+  }
+
+  async function agregar() {
+    setGuardando(true); setError('')
+    const nuevos: POItem[] = []
+    const actualizados: POItem[] = []
+    try {
+      let idx = items.length
+      for (const [key, cant] of elegidos) {
+        const r = renglones.find(x => x.key === key)
+        if (!r || r.moneda !== monedaOC) continue
+        // Si ya está en ESTA orden, se suma al renglón en vez de duplicarlo.
+        const ya = items.find(it => llaveProducto(it.catalog_product_id, it.name) === key)
+        if (ya) {
+          const qty = (Number(ya.quantity) || 0) + cant
+          const { data, error: e } = await supabase.from('po_items')
+            .update({ quantity: qty, total: redondearCentavos(qty * (Number(ya.unit_cost) || 0)) })
+            .eq('id', ya.id).select().single()
+          if (e) throw e
+          if (data) actualizados.push(data as POItem)
+          continue
+        }
+        const { data, error: e } = await supabase.from('po_items').insert({
+          purchase_order_id: po.id, currency: monedaOC,
+          catalog_product_id: r.catalog_product_id,
+          name: r.name, description: r.description, marca: r.marca, modelo: r.modelo,
+          system: r.system, unit: r.unit || 'pza',
+          quantity: cant, unit_cost: r.costo, total: redondearCentavos(r.costo * cant),
+          quantity_received: 0, order_index: idx++, cotejo_status: 'pendiente',
+        }).select().single()
+        if (e) throw e
+        if (data) nuevos.push(data as POItem)
+      }
+      onListo(nuevos, actualizados)
+    } catch (e: any) {
+      setError('No se pudo agregar: ' + (e?.message || String(e)))
+      setGuardando(false)
+    }
+  }
+
+  const chk = (on: boolean, txt: string, set: (v: boolean) => void) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#aaa', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+      <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} /> {txt}
+    </label>
+  )
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: isMobile ? 1150 : 1000 }}>
+      <div style={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 16, padding: isMobile ? 14 : 22, width: isMobile ? 'calc(100% - 16px)' : 860, maxWidth: '100%', boxSizing: 'border-box', maxHeight: isMobile ? '90vh' : '84vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Agregar desde la cotización</div>
+            <div style={{ fontSize: 11, color: '#777', marginTop: 3 }}>
+              Lo que se agrega aquí queda ligado al producto de la cotización y cuenta como pedido.
+              {completos > 0 && !verTodo ? ` ${completos} producto${completos === 1 ? '' : 's'} ya pedido${completos === 1 ? '' : 's'} completo${completos === 1 ? '' : 's'} (ocultos).` : ''}
+              {omitidos > 0 ? ` ${omitidos} renglón(es) de sistemas que no suman, fuera.` : ''}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+
+        {!po.quotation_id ? (
+          <EmptyState message="Esta orden no está ligada a una cotización. Elige la cotización arriba y vuelve a intentar." />
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+              <div style={{ position: 'relative', flex: '1 1 220px' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
+                <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar producto, modelo, marca..."
+                  style={{ width: '100%', padding: '7px 10px 7px 30px', background: '#1e1e1e', border: '1px solid #333', borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 12, fontFamily: 'inherit', boxSizing: 'border-box' }} />
+              </div>
+              {chk(soloProveedor, 'Solo de este proveedor', setSoloProveedor)}
+              {chk(verTodo, 'Ver también lo ya pedido', setVerTodo)}
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #222' }}>
+              {cargando && <Loading />}
+              {!cargando && visibles.length === 0 && (
+                <EmptyState message={renglones.length === 0 ? 'La cotización no tiene productos de material.' : 'No falta nada por pedir con estos filtros.'} />
+              )}
+              {visibles.map(r => {
+                const on = sel[r.key] != null
+                const otraMoneda = r.moneda !== monedaOC
+                const otroProv = !!po.supplier_id && r.supplierId !== po.supplier_id
+                return (
+                  <div key={r.key} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 6px', borderBottom: '1px solid #1e1e1e', opacity: otraMoneda ? 0.5 : 1, background: on ? '#10B98110' : 'transparent' }}>
+                    <input type="checkbox" checked={on} disabled={otraMoneda} onChange={() => toggle(r)} style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0, cursor: otraMoneda ? 'default' : 'pointer' }} onClick={() => !otraMoneda && toggle(r)}>
+                      <div style={{ fontSize: 12, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                      <div style={{ fontSize: 10, color: '#666', marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {r.modelo && <span>{r.modelo}</span>}
+                        {r.system && <span>· {r.system}</span>}
+                        <span style={{ color: otroProv ? '#F59E0B' : '#666' }}>· {r.proveedor || 'sin proveedor en catálogo'}{otroProv ? ' (otro proveedor)' : ''}</span>
+                        {!r.catalog_product_id && <span style={{ color: '#F59E0B' }}>· sin producto de catálogo</span>}
+                        {otraMoneda && <span style={{ color: '#EF4444' }}>· costeado en {r.moneda}: va en una orden en {r.moneda}</span>}
+                      </div>
+                      {r.ocs.length > 0 && (
+                        <div style={{ fontSize: 10, color: '#555', marginTop: 2 }}>
+                          Pedido en: {r.ocs.map(o => `${o.numero} (${o.cantidad}${o.id === po.id ? ', esta' : ''})`).join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0, fontSize: 11, color: '#888', lineHeight: 1.5 }}>
+                      <div>Vendido <b style={{ color: '#ccc' }}>{r.cantidad}</b> · pedido <b style={{ color: '#ccc' }}>{r.ordenado}</b></div>
+                      <div style={{ color: r.falta > 0 ? '#F59E0B' : '#10B981', fontWeight: 600 }}>{r.falta > 0 ? `Faltan ${r.falta}` : 'Completo'}</div>
+                    </div>
+                    <div style={{ width: isMobile ? 64 : 84, flexShrink: 0 }}>
+                      {on ? (
+                        <input type="number" min={0} value={sel[r.key]}
+                          onChange={e => { const n = Math.max(0, Number(e.target.value) || 0); setSel(prev => ({ ...prev, [r.key]: n })) }}
+                          style={{ width: '100%', padding: '5px 6px', background: '#1e1e1e', border: '1px solid #10B981', borderRadius: 6, color: '#fff', fontSize: isMobile ? 16 : 12, textAlign: 'right', boxSizing: 'border-box' }} />
+                      ) : (
+                        <div style={{ fontSize: 11, color: '#10B981', textAlign: 'right' }}>{FCUR(r.costo, r.moneda)}</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {error && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 10 }}>{error}</div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, gap: 10 }}>
+              <div style={{ fontSize: 11, color: '#777' }}>
+                {elegidos.length ? `${elegidos.length} producto${elegidos.length === 1 ? '' : 's'} · ${FCUR(elegidos.reduce((s, [k, n]) => s + (renglones.find(r => r.key === k)?.costo || 0) * n, 0), monedaOC)}` : 'Palomea lo que falta pedir'}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn size="sm" onClick={onClose}>Cancelar</Btn>
+                <Btn size="sm" variant="primary" disabled={!elegidos.length || guardando} onClick={agregar}>
+                  <Plus size={12} /> {guardando ? 'Agregando…' : 'Agregar a la orden'}
+                </Btn>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
