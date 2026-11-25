@@ -48,6 +48,8 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   // Datos del membrete del PDF: versión y quién la elaboró.
   const [versionLabel, setVersionLabel] = useState<string | null>(null)
   const [autorNombre, setAutorNombre] = useState('')
+  // Celular: renglón compacto de solo lectura; tocarlo abre la hoja para editar.
+  const [editId, setEditId] = useState<string | null>(null)
 
   useEffect(() => {
     (async () => {
@@ -124,7 +126,11 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
     await supabase.from('quotations').update({ notes: JSON.stringify(merged), total, total_final: total }).eq('id', cotId)
   }
 
-  function addRow() { setItems(x => [...x, { id: uid(), name: '', marca: '', modelo: '', cantidad: 1, costo: 0, precioPublico: 0 }]) }
+  function addRow() {
+    const id = uid()
+    setItems(x => [...x, { id, name: '', marca: '', modelo: '', cantidad: 1, costo: 0, precioPublico: 0 }])
+    if (isMobile) setEditId(id)
+  }
   function upd(id: string, patch: Partial<DistItem>) { setItems(x => x.map(i => i.id === id ? { ...i, ...patch } : i)) }
   function rm(id: string) { setItems(x => x.filter(i => i.id !== id)) }
 
@@ -268,9 +274,10 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
   }
 
 
-  const inp: React.CSSProperties = { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, color: '#fff', fontSize: 12, padding: '5px 7px', fontFamily: 'inherit', width: '100%' }
+  const inp: React.CSSProperties = { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 4, color: '#fff', fontSize: isMobile ? 16 : 12, padding: '5px 7px', fontFamily: 'inherit', width: '100%' }
   const th: React.CSSProperties = { fontSize: 9, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 6px', textAlign: 'left' }
-  const cols = isMobile ? '1.4fr 0.8fr 44px 80px 80px 90px 28px' : '1.6fr 1fr 0.8fr 56px 100px 110px 110px 30px'
+  const cols = '1.6fr 1fr 0.8fr 56px 100px 110px 110px 30px'
+  const chip: React.CSSProperties = { padding: '5px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #2a2a2a', background: 'transparent', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', flexShrink: 0 }
 
   if (loading) return <div style={{ padding: 40, color: '#666' }}>Cargando…</div>
 
@@ -297,8 +304,44 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
           }))}
         />
       )}
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: isMobile ? '10px 12px' : '12px 18px', borderBottom: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
+      {/* Header (celular) — 60px libres a la izquierda para el botón del menú */}
+      {isMobile && (
+        <div style={{ padding: '10px 12px 10px 60px', borderBottom: '1px solid #1e1e1e' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex', padding: 0, flexShrink: 0 }}><ChevronLeft size={20} /></button>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cotName || 'Cotización de distribución'}</div>
+              <div style={{ fontSize: 11, color: '#F59E0B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>⇄ Distribución{clientName ? ' · ' + clientName : ''}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 9, overflowX: 'auto', paddingBottom: 2 }}>
+            <button onClick={() => setShowIA(true)} style={{ ...chip, borderColor: '#A78BFA', background: '#A78BFA22', color: '#A78BFA' }}><Sparkles size={12} /> IA</button>
+            <button onClick={() => fileRef.current?.click()} disabled={importing} style={{ ...chip, color: '#888' }}>
+              {importing ? <Loader2 size={12} className="spin" /> : <Upload size={12} />} {importing ? 'Importando…' : 'Importar'}
+            </button>
+            <button onClick={exportPdf} style={{ ...chip, borderColor: '#67E8F9', background: '#67E8F922', color: '#67E8F9' }}><Download size={12} /> PDF</button>
+            <BotonCatalogo cotId={cotId} />
+            <VersionManager cotId={cotId} getCurrentSnapshot={() => JSON.stringify({ items, config })} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#F59E0B" compact />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: '#777' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>TC
+              <input type="number" step={0.01} value={config.tipoCambio} onChange={e => setConfig(c => ({ ...c, tipoCambio: parseFloat(e.target.value) || 0 }))}
+                style={{ ...inp, width: 58, padding: '3px 6px', textAlign: 'right', fontSize: 16 }} />
+            </label>
+            <button onClick={convertirMoneda} style={{ fontSize: 11, fontWeight: 700, color: config.currency === 'USD' ? '#06B6D4' : '#F59E0B', background: config.currency === 'USD' ? '#06B6D422' : '#F59E0B22', border: '1px solid ' + (config.currency === 'USD' ? '#06B6D455' : '#F59E0B55'), borderRadius: 5, padding: '4px 8px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+              {config.currency} → {config.currency === 'USD' ? 'MXN' : 'USD'}
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>IVA%
+              <input type="number" value={config.ivaRate} onChange={e => setConfig(c => ({ ...c, ivaRate: parseFloat(e.target.value) || 0 }))}
+                style={{ ...inp, width: 46, padding: '3px 6px', textAlign: 'right', fontSize: 16 }} />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Header (escritorio) */}
+      {!isMobile && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid #1e1e1e', flexWrap: 'wrap' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={20} /></button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cotName || 'Cotización de distribución'}</div>
@@ -313,8 +356,6 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
           style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: importing ? 'wait' : 'pointer', fontFamily: 'inherit', border: '1px solid #2a2a2a', background: 'transparent', color: '#777', display: 'flex', alignItems: 'center', gap: 4 }}>
           {importing ? <Loader2 size={12} className="spin" /> : <Upload size={12} />} {importing ? 'Importando…' : 'Importar (1 archivo)'}
         </button>
-        <input ref={fileRef} type="file" accept=".pdf,image/*,.csv,.txt" style={{ display: 'none' }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) importarOrden(f); e.currentTarget.value = '' }} />
         <label style={{ fontSize: 10, color: '#666', display: 'flex', alignItems: 'center', gap: 4 }} title="Tipo de cambio pactado (fijo para esta cotización)">TC
           <input type="number" step={0.01} value={config.tipoCambio} onChange={e => setConfig(c => ({ ...c, tipoCambio: parseFloat(e.target.value) || 0 }))}
             style={{ ...inp, width: 62, padding: '3px 6px', textAlign: 'right' }} />
@@ -332,6 +373,9 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
         <BotonCatalogo cotId={cotId} />
         <VersionManager cotId={cotId} getCurrentSnapshot={() => JSON.stringify({ items, config })} onSwitchVersion={onSwitchVersion || (() => {})} accentColor="#F59E0B" compact={isMobile} />
       </div>
+      )}
+      <input ref={fileRef} type="file" accept=".pdf,image/*,.csv,.txt" style={{ display: 'none' }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) importarOrden(f); e.currentTarget.value = '' }} />
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '10px 8px' : '16px 20px' }}>
@@ -340,8 +384,8 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#141414', border: '1px solid #2a2a2a', borderRadius: 8, padding: '5px 10px' }}>
             <Search size={13} color="#666" />
             <input value={catQuery} onChange={e => { setCatQuery(e.target.value); setShowCat(true) }} onFocus={() => setShowCat(true)}
-              placeholder="Buscar en catálogo (nombre, marca, modelo)…"
-              style={{ ...inp, border: 'none', background: 'transparent', padding: 0 }} />
+              placeholder={isMobile ? 'Agregar del catálogo…' : 'Buscar en catálogo (nombre, marca, modelo)…'}
+              style={{ ...inp, border: 'none', background: 'transparent', padding: 0, fontSize: isMobile ? 16 : 12 }} />
           </div>
           {showCat && catMatches.length > 0 && (
             <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, marginTop: 4, background: '#141414', border: '1px solid #2a2a2a', borderRadius: 8, maxHeight: 320, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
@@ -361,25 +405,41 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
         </div>
 
         <div style={{ border: '1px solid #1f1f1f', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, padding: '7px 10px', background: '#161616' }}>
+          {!isMobile && <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, padding: '7px 10px', background: '#161616' }}>
             <span style={th}>Producto</span>
             <span style={th}>Marca</span>
-            {!isMobile && <span style={th}>Modelo</span>}
+            <span style={th}>Modelo</span>
             <span style={{ ...th, textAlign: 'center' }}>Cant</span>
             <span style={{ ...th, textAlign: 'right' }}>Costo u.</span>
             <span style={{ ...th, textAlign: 'right' }}>P. público u.</span>
             <span style={{ ...th, textAlign: 'right' }}>Importe</span>
             <span />
-          </div>
+          </div>}
           {items.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: '#555', fontSize: 12 }}>Agrega productos para revender, búscalos en el catálogo o importa una orden (PDF).</div>}
           {items.map(it => {
             const imp = it.precioPublico * it.cantidad
             const mg = it.precioPublico > 0 ? Math.round(((it.precioPublico - it.costo) / it.precioPublico) * 100) : 0
+            if (isMobile) return (
+              <div key={it.id} onClick={() => setEditId(it.id)}
+                style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', borderTop: '1px solid #161616', cursor: 'pointer' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: it.name ? '#eee' : '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name || 'Sin descripción'}</div>
+                  {(it.marca || it.modelo) && <div style={{ fontSize: 10.5, color: '#777', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>}
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                    {it.cantidad} × {F2(it.precioPublico)} <span style={{ color: '#555' }}>· costo {F2(it.costo)}</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{F2(imp)}</div>
+                  <div style={{ fontSize: 10, color: it.costo > 0 ? (mg >= 0 ? '#10B981' : '#DC2626') : '#F59E0B' }}>{it.costo > 0 ? `MG ${mg}%` : 'sin costo'}</div>
+                </div>
+              </div>
+            )
             return (
               <div key={it.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 4, padding: '6px 10px', alignItems: 'center', borderTop: '1px solid #161616' }}>
                 <input value={it.name} onChange={e => upd(it.id, { name: e.target.value })} placeholder="Producto / descripción" style={inp} />
                 <input value={it.marca} onChange={e => upd(it.id, { marca: e.target.value })} placeholder="Marca" style={inp} />
-                {!isMobile && <input value={it.modelo} onChange={e => upd(it.id, { modelo: e.target.value })} placeholder="Modelo" style={inp} />}
+                <input value={it.modelo} onChange={e => upd(it.id, { modelo: e.target.value })} placeholder="Modelo" style={inp} />
                 <input type="number" value={it.cantidad} onChange={e => upd(it.id, { cantidad: parseFloat(e.target.value) || 0 })} style={{ ...inp, textAlign: 'center' }} />
                 <input type="number" value={it.costo} onChange={e => upd(it.id, { costo: parseFloat(e.target.value) || 0 })} style={{ ...inp, textAlign: 'right' }} />
                 <input type="number" value={it.precioPublico} onChange={e => upd(it.id, { precioPublico: parseFloat(e.target.value) || 0 })} style={{ ...inp, textAlign: 'right', borderColor: '#F59E0B44' }} />
@@ -397,7 +457,7 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
         </div>
 
         {/* Totales */}
-        <div style={{ marginTop: 16, marginLeft: 'auto', maxWidth: 360, background: '#0e0e0e', border: '1px solid #1f1f1f', borderRadius: 10, padding: 14 }}>
+        <div style={{ marginTop: 16, marginLeft: 'auto', maxWidth: isMobile ? 'none' : 360, background: '#0e0e0e', border: '1px solid #1f1f1f', borderRadius: 10, padding: 14 }}>
           <Row label="Subtotal (precio público)" value={F2(subtotalPublico)} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
             <span style={{ fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -447,6 +507,46 @@ export default function CotEditorDistribucion({ cotId, onBack, onSwitchVersion }
           </div>
         </div>
       </div>
+      {isMobile && editId && (() => {
+        const it = items.find(x => x.id === editId)
+        if (!it) return null
+        const mg = it.precioPublico > 0 ? Math.round(((it.precioPublico - it.costo) / it.precioPublico) * 100) : 0
+        const campo = (label: string, el: any) => (
+          <label style={{ display: 'block', marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: '#777', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</div>
+            {el}
+          </label>
+        )
+        const big: React.CSSProperties = { ...inp, fontSize: 16, padding: '9px 10px', boxSizing: 'border-box' }
+        return (
+          <div onClick={() => setEditId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1150, display: 'flex', alignItems: 'flex-end' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#141414', borderTop: '1px solid #2a2a2a', borderRadius: '16px 16px 0 0', padding: '16px 16px 24px', width: '100%', boxSizing: 'border-box', maxHeight: '88vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Partida</div>
+                <button onClick={() => setEditId(null)} style={{ background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: 8, color: '#10B981', fontSize: 13, fontWeight: 600, padding: '6px 14px', cursor: 'pointer', fontFamily: 'inherit' }}>Listo</button>
+              </div>
+              {campo('Producto / descripción', <textarea value={it.name} rows={2} onChange={e => upd(it.id, { name: e.target.value })} style={{ ...big, resize: 'vertical' }} />)}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {campo('Marca', <input value={it.marca} onChange={e => upd(it.id, { marca: e.target.value })} style={big} />)}
+                {campo('Modelo', <input value={it.modelo} onChange={e => upd(it.id, { modelo: e.target.value })} style={big} />)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 1fr 1fr', gap: 10 }}>
+                {campo('Cantidad', <input type="number" inputMode="decimal" value={it.cantidad} onChange={e => upd(it.id, { cantidad: parseFloat(e.target.value) || 0 })} style={{ ...big, textAlign: 'center' }} />)}
+                {campo('Costo u.', <input type="number" inputMode="decimal" value={it.costo} onChange={e => upd(it.id, { costo: parseFloat(e.target.value) || 0 })} style={{ ...big, textAlign: 'right' }} />)}
+                {campo('P. público u.', <input type="number" inputMode="decimal" value={it.precioPublico} onChange={e => upd(it.id, { precioPublico: parseFloat(e.target.value) || 0 })} style={{ ...big, textAlign: 'right', borderColor: '#F59E0B66' }} />)}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: '1px solid #222', marginTop: 4 }}>
+                <span style={{ fontSize: 12, color: '#888' }}>Importe <span style={{ color: mg >= 0 ? '#10B981' : '#DC2626' }}>· margen {mg}%</span></span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{F2(it.precioPublico * it.cantidad)}</span>
+              </div>
+              <button onClick={() => { rm(it.id); setEditId(null) }}
+                style={{ width: '100%', marginTop: 6, background: 'transparent', border: '1px solid #DC262655', borderRadius: 8, color: '#DC2626', fontSize: 13, padding: '9px 0', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Trash2 size={14} /> Quitar partida
+              </button>
+            </div>
+          </div>
+        )
+      })()}
       <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
