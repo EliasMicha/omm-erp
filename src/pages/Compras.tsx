@@ -3504,6 +3504,40 @@ function POFromQuoteModal({ onClose, onCreated }: { onClose: () => void; onCreat
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PO EDITOR (Detail view)
 // ═══════════════════════════════════════════════════════════════════════════════
+// ── Búsqueda del catálogo en la orden de compra ──────────────────────────────
+function normCat(t: unknown): string {
+  return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+function compactoCat(t: unknown): string { return normCat(t).replace(/[\s\-_./]/g, '') }
+
+function buscarEnCatalogo(catalog: CatalogProduct[], q: string, supplierId: string | null, limite: number) {
+  const palabras = normCat(q).split(/\s+/).filter(Boolean)
+  const qComp = compactoCat(q)
+  const delProv = (p: any) => !!supplierId && p.supplier_id === supplierId
+  if (!palabras.length) {
+    // Sin búsqueda: primero lo de este proveedor.
+    const base = supplierId ? catalog.filter(delProv) : catalog
+    return { filteredCatalog: base.slice(0, limite), totalCatalogo: base.length }
+  }
+  const hits: Array<{ p: CatalogProduct; score: number }> = []
+  for (const p of catalog as any[]) {
+    const texto = normCat([p.name, p.modelo, p.marca, p.sku, p.provider, p.system, p.description].join(' '))
+    const textoComp = compactoCat([p.name, p.modelo, p.marca, p.sku].join(' '))
+    if (!palabras.every(w => texto.includes(w) || textoComp.includes(w.replace(/[\-_./]/g, '')))) {
+      if (!(qComp.length >= 3 && textoComp.includes(qComp))) continue
+    }
+    const mod = compactoCat(p.modelo), sku = compactoCat(p.sku)
+    let score = 0
+    if (qComp && (mod === qComp || sku === qComp)) score += 100
+    else if (qComp && (mod.startsWith(qComp) || sku.startsWith(qComp))) score += 50
+    if (normCat(p.name).startsWith(palabras[0])) score += 10
+    if (delProv(p)) score += 20
+    hits.push({ p, score })
+  }
+  hits.sort((a, b) => b.score - a.score || String(a.p.name).localeCompare(String(b.p.name)))
+  return { filteredCatalog: hits.slice(0, limite).map(h => h.p), totalCatalogo: hits.length }
+}
+
 function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => void; onAbrirOtra?: (id: string) => void }) {
   const [po, setPO] = useState<PurchaseOrder | null>(null)
   const [items, setItems] = useState<POItem[]>([])
@@ -3932,9 +3966,12 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   }
 
   // Filter catalog for add-item modal
-  const filteredCatalog = catalogSearch
-    ? catalog.filter(p => p.name.toLowerCase().includes(catalogSearch.toLowerCase()) || (p.system || '').toLowerCase().includes(catalogSearch.toLowerCase()))
-    : catalog.slice(0, 20)
+  // Busca en nombre, modelo, marca, SKU, proveedor, sistema y descripción, por
+  // palabras sueltas y sin importar acentos, guiones o espacios ("u7 pro" encuentra
+  // "U7-Pro"). Antes solo miraba nombre y sistema y pintaba miles de renglones:
+  // no encontraba por modelo y la lista se trababa. Se pintan los primeros 80.
+  const LIMITE_CAT = 80
+  const { filteredCatalog, totalCatalogo } = buscarEnCatalogo(catalog, catalogSearch, po?.supplier_id || null, LIMITE_CAT)
 
   return (
     <div style={{ padding: isMobile ? '10px 12px 90px' : '24px 28px', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}>
@@ -4849,30 +4886,44 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
             </div>
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#555' }} />
-              <input value={catalogSearch} onChange={e => setCatalogSearch(e.target.value)} placeholder="Buscar producto..."
+              <input autoFocus value={catalogSearch} onChange={e => setCatalogSearch(e.target.value)} placeholder="Buscar por nombre, modelo, marca o proveedor…"
                 style={{
                   width: '100%', padding: '7px 10px 7px 30px', background: '#1e1e1e', border: '1px solid #333',
                   borderRadius: 8, color: '#fff', fontSize: isMobile ? 16 : 12, fontFamily: 'inherit', boxSizing: 'border-box',
                 }} />
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {filteredCatalog.map(p => (
+              <div style={{ fontSize: 10.5, color: '#666', padding: '0 2px 6px' }}>
+                {catalog.length === 0 ? 'Cargando catálogo…'
+                  : catalogSearch.trim()
+                    ? `${totalCatalogo} resultado${totalCatalogo === 1 ? '' : 's'}${totalCatalogo > LIMITE_CAT ? ` · se muestran ${LIMITE_CAT}, escribe más para afinar` : ''}`
+                    : po?.supplier_id ? `${totalCatalogo} producto${totalCatalogo === 1 ? '' : 's'} de este proveedor · escribe para buscar en todo el catálogo (${catalog.length})`
+                      : `Escribe para buscar en ${catalog.length} productos`}
+              </div>
+              {filteredCatalog.map(p => {
+                const pa: any = p
+                const otraMoneda = monedaDeCosto(p) !== normalizarMoneda(po?.currency)
+                return (
                 <div key={p.id} onClick={() => addItemFromCatalog(p)}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '10px 12px', borderBottom: '1px solid #1e1e1e', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                    padding: '9px 12px', borderBottom: '1px solid #1e1e1e', cursor: 'pointer', opacity: otraMoneda ? 0.55 : 1,
                   }}>
-                  <div>
-                    <div style={{ fontSize: 12, color: '#fff' }}>{p.name}</div>
-                    <div style={{ fontSize: 10, color: '#555' }}>{p.system} | {p.provider || 'Sin proveedor'}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                    <div style={{ fontSize: 10, color: '#666', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {[pa.modelo, pa.marca, p.system].filter(Boolean).join(' · ')}
+                      <span style={{ color: po?.supplier_id && pa.supplier_id === po.supplier_id ? '#10B981' : '#555' }}> · {p.provider || 'Sin proveedor'}</span>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{F(p.cost)}</div>
-                    <div style={{ fontSize: 10, color: '#555' }}>/{p.unit}</div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>{FCUR(Number(p.cost) || 0, monedaDeCosto(p))}</div>
+                    <div style={{ fontSize: 10, color: otraMoneda ? '#EF4444' : '#555' }}>{otraMoneda ? `${monedaDeCosto(p)} · otra moneda` : `/${p.unit}`}</div>
                   </div>
                 </div>
-              ))}
-              {filteredCatalog.length === 0 && <EmptyState message="Sin resultados" />}
+              )})}
+              {catalog.length > 0 && filteredCatalog.length === 0 && <EmptyState message="Sin resultados" />}
             </div>
           </div>
         </div>
