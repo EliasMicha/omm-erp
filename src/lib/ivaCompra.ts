@@ -20,8 +20,10 @@ export const redondearCentavos = (n: any) => Math.round((Number(n) || 0) * 100) 
 /**
  * IVA de una orden de compra.
  * `tipo === 'servicio'` (destajo, mano de obra) no causa IVA.
+ * `sinIva` (purchase_orders.sin_iva): la orden se marcó sin IVA a mano, p.ej.
+ * un proveedor extranjero que factura sin IVA.
  */
-export function ivaDeOrden(subtotal: any, tipo?: string | null): number {
-  if (tipo === 'servicio') return 0
+export function ivaDeOrden(subtotal: any, tipo?: string | null, sinIva?: boolean | null): number {
+  if (tipo === 'servicio' || sinIva) return 0
   return redondearCentavos((Number(subtotal) || 0) * TASA_IVA_COMPRA)
 }

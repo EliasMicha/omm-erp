@@ -27,6 +27,7 @@ export interface OCParaDeuda {
   total: number
   tipo?: string | null
   extras?: any
+  sin_iva?: boolean | null
 }
 
 /** Resumen de cotejo por OC: subtotal de partidas con lo cotejado ya aplicado. */
@@ -46,7 +47,7 @@ export function totalDeOC(o: OCParaDeuda, cotejo?: CotejoOC | null): number {
   ), 0)
   const subtotal = s + extrasTotal
   const esServ = o.tipo === 'servicio'
-  return redondearCentavos(subtotal + ivaDeOrden(subtotal, esServ ? 'servicio' : 'material'))
+  return redondearCentavos(subtotal + ivaDeOrden(subtotal, esServ ? 'servicio' : 'material', o.sin_iva))
 }
 
 /**

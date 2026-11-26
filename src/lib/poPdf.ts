@@ -240,7 +240,7 @@ export function generatePOPdf(po: POForPdf, items: POItemForPdf[], opts?: POPdfO
       ['Subtotal', fmtMoney(po.subtotal, po.currency)],
       // Un destajo no lleva IVA: se paga lo pactado. Imprimir "IVA (16%) $0.00"
       // invita a que alguien lo capture y se lo sume.
-      ...(po.tipo === 'servicio' ? [] : [['IVA (16%)', fmtMoney(po.iva, po.currency)]]),
+      ...(po.tipo === 'servicio' ? [] : (po as any).sin_iva ? [['IVA', 'No aplica']] : [['IVA (16%)', fmtMoney(po.iva, po.currency)]]),
       ['TOTAL', fmtMoney(po.total, po.currency)],
     ]
 

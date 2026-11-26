@@ -1478,7 +1478,7 @@ function POList({ onOpen }: { onOpen: (id: string) => void }) {
     ), 0)
     const subtotal = s.sumCotejo + extrasTotal
     const esServ = (o as any).tipo === 'servicio'
-    return redondearCentavos(subtotal + ivaDeOrden(subtotal, esServ ? 'servicio' : 'material'))
+    return redondearCentavos(subtotal + ivaDeOrden(subtotal, esServ ? 'servicio' : 'material', (o as any).sin_iva))
   }
 
   // Una OC esta pagada si los pagos registrados cubren el total mostrado.
@@ -3720,7 +3720,8 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
   const subtotal = subtotalItems + extrasTotal
   // Una orden de servicio es destajo: se paga lo pactado y no lleva IVA.
   const esServicio = (po as any)?.tipo === 'servicio'
-  const iva = ivaDeOrden(subtotal, esServicio ? 'servicio' : 'material')
+  const sinIva = !!(po as any)?.sin_iva
+  const iva = ivaDeOrden(subtotal, esServicio ? 'servicio' : 'material', sinIva)
   const total = redondearCentavos(subtotal + iva)
 
   async function guardar() {
@@ -3743,6 +3744,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     await supabase.from('purchase_orders').update({
       subtotal, iva, total,
       extras,
+      sin_iva: sinIva,
       supplier_id: po.supplier_id || null,
       project_id: po.project_id || null,
       quotation_id: po.quotation_id || null,
@@ -3793,7 +3795,7 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
     const sub = updated.reduce((s, it) => s + (((it.cotejo_status === 'cotejado' || it.cotejo_status === 'sustituido') && it.real_total != null) ? Number(it.real_total) : (Number(it.total) || 0)), 0)
     const extrasTot = extrasConv.reduce((s, e) => e.tipo === 'porcentaje' ? s + sub * ((Number(e.valor) || 0) / 100) : s + (Number(e.valor) || 0), 0)
     const subTot = sub + extrasTot
-    const ivaV = ivaDeOrden(subTot, (po as any).tipo)
+    const ivaV = ivaDeOrden(subTot, (po as any).tipo, (po as any).sin_iva)
     const totV = redondearCentavos(subTot + ivaV)
     await supabase.from('purchase_orders').update({ currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV, updated_at: new Date().toISOString() }).eq('id', po.id)
     setPO({ ...po, currency: target, extras: extrasConv, subtotal: subTot, iva: ivaV, total: totV } as any)
@@ -4716,8 +4718,15 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: '#888' }}>{esServicio ? 'IVA' : 'IVA (16%)'}</span>
-            <span style={{ fontSize: 12, color: esServicio ? '#555' : '#ccc' }}>{esServicio ? 'No aplica' : F(iva)}</span>
+            <span style={{ fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 8 }}>
+              {esServicio ? 'IVA' : sinIva ? 'IVA' : 'IVA (16%)'}
+              {!esServicio && canEdit && (
+                <label title="Para proveedores que facturan sin IVA (extranjero / importación)" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: sinIva ? '#F59E0B' : '#666', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={sinIva} onChange={e => { setPO({ ...po, sin_iva: e.target.checked } as any); setDirty(true) }} /> Sin IVA
+                </label>
+              )}
+            </span>
+            <span style={{ fontSize: 12, color: esServicio || sinIva ? '#555' : '#ccc' }}>{esServicio || sinIva ? 'No aplica' : F(iva)}</span>
           </div>
           <div style={{ borderTop: '1px solid #333', paddingTop: 8, display: 'flex', justifyContent: 'space-between', marginBottom: subtotal !== subtotalCatalogo ? 10 : 0 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{totalLabel}</span>
