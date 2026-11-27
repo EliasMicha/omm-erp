@@ -103,8 +103,12 @@ function getQuincenaRange(date: Date): { start: Date; end: Date } {
   }
 }
 
+// Fecha LOCAL (AAAA-MM-DD). Antes usaba toISOString(), que convierte a UTC:
+// fuera de México (p.ej. en Corea, UTC+9) la medianoche del lunes 23 salía como
+// "2026-11-22" y no encontraba el periodo, o lo habría creado con fecha corrida.
 function fmtDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
 }
 
 function fmtDateLabel(d: Date): string {
@@ -1042,7 +1046,7 @@ export default function TabPeriodos() {
         persona: empName,
         concepto: `${periodLabel} - efectivo`,
         monto: item._totalEfectivo,
-        fecha: new Date().toISOString().slice(0, 10),
+        fecha: fmtDate(new Date()),
         payroll_item_id: item.id,
       })
     } else {

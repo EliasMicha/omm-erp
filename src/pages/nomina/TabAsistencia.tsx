@@ -82,7 +82,8 @@ export default function TabAsistencia() {
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1)
     }
-    const startStr = startDate.toISOString().slice(0, 10)
+    // Fecha local, no UTC (fuera de México toISOString corre el día).
+    const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
 
     const { data } = await supabase
       .from('installer_attendance')
