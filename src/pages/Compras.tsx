@@ -18,6 +18,7 @@ import { useExistenciaSyscom, InsigniaExistencia } from '../components/syscom/Ex
 import { useIsMobile } from '../lib/useIsMobile'
 import { Plus, ChevronLeft, X, Search, Trash2, Save, ShoppingCart, Truck, Package, Users2, FileText, Copy, Sparkles, Upload, ClipboardList, ChevronRight, CheckCircle2, Circle, Clock, Download, Paperclip } from 'lucide-react'
 import { generatePOPdf } from '../lib/poPdf'
+import { descargarOrdenNuled, esProveedorNuled } from '../lib/ordenNuled'
 import { sugerirFechaMaximaPago, estadoPago } from '../lib/pagoProveedor'
 import { normalizarMoneda, monedaDeCosto, type Moneda } from '../lib/moneda'
 import { ivaDeOrden, redondearCentavos } from '../lib/ivaCompra'
@@ -4026,6 +4027,14 @@ function POEditor({ poId, onBack, onAbrirOtra }: { poId: string; onBack: () => v
             } as any))
             generatePOPdf(po as any, enriched, { sinCostos: true })
           }}><FileText size={14} /> PDF sin costos</Btn>
+          {esProveedorNuled(suppliers.find(s => s.id === po.supplier_id)?.name || (po.supplier as any)?.name) && (
+            <span title="Pedido en el formato de NULED (Excel). Factura Constructora Kanso, uso G03 Gastos en general.">
+              <Btn size="sm" variant="ghost" style={{ borderColor: '#F59E0B', color: '#F59E0B' }}
+                onClick={() => { descargarOrdenNuled(po as any, items).catch(e => alert('No se pudo generar el formato: ' + (e?.message || e))) }}>
+                <FileText size={14} /> Formato NULED
+              </Btn>
+            </span>
+          )}
           {canEdit && (
             <Btn size="sm" variant="ghost" title="Convierte la OC a la moneda del proveedor con un TC fijo (para que cuadre con las transferencias)"
               onClick={convertirMonedaOC}

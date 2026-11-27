@@ -187,8 +187,8 @@ function hojaXml(h: HojaXlsx): string {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${congelar}<cols>${cols}</cols><sheetData>${filas.join('')}</sheetData></worksheet>`
 }
 
-/** Genera y descarga un .xlsx. Nombre sin extensión; se agrega .xlsx. */
-export function descargarXlsx(nombreArchivo: string, hojas: HojaXlsx[]) {
+/** Arma el .xlsx como Blob (para guardarlo con guardarBlob, que en el celular abre la hoja de compartir). */
+export function xlsxBlob(hojas: HojaXlsx[]): Blob {
   const n = hojas.length
   const archivos = [
     {
@@ -214,7 +214,12 @@ export function descargarXlsx(nombreArchivo: string, hojas: HojaXlsx[]) {
     { nombre: 'xl/styles.xml', datos: txt(STYLES) },
     ...hojas.map((h, i) => ({ nombre: `xl/worksheets/sheet${i + 1}.xml`, datos: txt(hojaXml(h)) })),
   ]
-  const url = URL.createObjectURL(zip(archivos))
+  return zip(archivos)
+}
+
+/** Genera y descarga un .xlsx. Nombre sin extensión; se agrega .xlsx. */
+export function descargarXlsx(nombreArchivo: string, hojas: HojaXlsx[]) {
+  const url = URL.createObjectURL(xlsxBlob(hojas))
   const a = document.createElement('a')
   a.href = url
   a.download = `${nombreArchivo.replace(/[\\/:*?"<>|]/g, '-')}.xlsx`
