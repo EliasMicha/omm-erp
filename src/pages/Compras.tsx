@@ -2092,7 +2092,7 @@ function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; o
       try {
         const provIds = Array.from(new Set(ocs.map(o => o.supplierId)))
         const { data, error: e1 } = await supabase.from('supplier_bank_accounts')
-          .select('supplier_id,clabe,cuenta_bancaria,banco,bnet_codigo,moneda,is_default,etiqueta')
+          .select('supplier_id,clabe,cuenta_bancaria,banco,bnet_codigo,moneda,is_default,etiqueta,titular')
           .in('supplier_id', provIds)
         if (e1) throw e1
         const porProv: Record<string, Destino[]> = {}
@@ -2146,7 +2146,7 @@ function PagoMasivoModal({ ocs, onClose, onRegistrados }: { ocs: OCParaPago[]; o
     if (!d) { sinCuenta.push(g.nombre); return }
     g.ocs.forEach(o => {
       if (problemaMonto(o)) return
-      renglones.push({ oc: o, linea: { folio: o.folio, monto: Math.round(Number(montos[o.id]) * 100) / 100, titular: g.nombre, destino: d } })
+      renglones.push({ oc: o, linea: { folio: o.folio, monto: Math.round(Number(montos[o.id]) * 100) / 100, titular: d.titular || g.nombre, destino: d } })
     })
   })
   const conProblemaMonto = ocs.filter(o => problemaMonto(o) && destinoDe(o.supplierId))

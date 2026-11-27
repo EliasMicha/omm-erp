@@ -38,6 +38,8 @@ export interface Destino {
   numero: string
   /** Texto para mostrar: "BBVA · 0453506150" / "SPEI · 014… (Santander)". */
   etiqueta: string
+  /** Titular de la cuenta si no es el proveedor (supplier_bank_accounts.titular). */
+  titular?: string
 }
 
 export interface LineaPago {
@@ -66,7 +68,7 @@ export function folioSinGuiones(folio: string): string {
 const BANCOS: Record<string, string> = {
   '002': 'Banamex', '012': 'BBVA', '014': 'Santander', '021': 'HSBC', '030': 'Bajío',
   '036': 'Inbursa', '044': 'Scotiabank', '058': 'Banregio', '062': 'Afirme', '072': 'Banorte',
-  '127': 'Azteca', '137': 'BanCoppel', '646': 'STP', '638': 'Nu', '722': 'Mercado Pago',
+  '127': 'Azteca', '137': 'BanCoppel', '147': 'Bankaool', '646': 'STP', '638': 'Nu', '722': 'Mercado Pago',
 }
 export function nombreBanco(clabe: string): string {
   return BANCOS[soloDigitos(clabe).slice(0, 3)] || 'banco ' + soloDigitos(clabe).slice(0, 3)
@@ -91,6 +93,7 @@ export interface CuentaProveedor {
   moneda?: string | null
   is_default?: boolean | null
   etiqueta?: string | null
+  titular?: string | null
 }
 
 /**
@@ -101,11 +104,18 @@ export interface CuentaProveedor {
 export function destinosDe(cuentas: CuentaProveedor[]): Destino[] {
   const out: Destino[] = []
   const ya = new Set<string>()
-  const add = (d: Destino) => { const k = d.tipo + d.numero; if (!ya.has(k)) { ya.add(k); out.push(d) } }
+  let titularActual: string | undefined
+  const add = (d: Destino) => {
+    const k = d.tipo + d.numero
+    if (ya.has(k)) return
+    ya.add(k)
+    out.push(titularActual ? { ...d, titular: titularActual, etiqueta: d.etiqueta + ' · ' + titularActual } : d)
+  }
   const ordenadas = [...cuentas]
     .filter(c => (c.moneda || 'MXN') === 'MXN')
     .sort((a, b) => Number(!!b.is_default) - Number(!!a.is_default))
   for (const c of ordenadas) {
+    titularActual = (c.titular || '').trim() || undefined
     const bnet = soloDigitos(c.bnet_codigo)
     const clabe = soloDigitos(c.clabe)
     const cta = soloDigitos(c.cuenta_bancaria)
