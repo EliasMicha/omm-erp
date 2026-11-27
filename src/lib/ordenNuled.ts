@@ -28,14 +28,22 @@ export function esProveedorNuled(nombre: string | null | undefined): boolean {
   return /nuled/i.test(String(nombre || ''))
 }
 
-// Clave SAT cuando el catálogo no la trae (157 de 177 productos de NULED no la
-// tienen). Sale de las claves que usa el formato original.
+// Clave SAT cuando el catálogo no la trae. Las de abajo son las que usa el
+// proveedor de NULED (CONSTRUCCIONES PICCAT) en sus facturas a OMM y las del
+// formato original. El 27-nov-2026 se cargaron al catálogo las claves de los
+// 49 productos que ya aparecen en esas facturas; esto cubre al resto.
+// El orden importa: "conector de manguera" es accesorio, no tira, y
+// "proyector para riel" es luminaria, no riel.
 function claveSatSugerida(texto: string): string {
   const t = texto.toLowerCase()
-  if (/tira|manguera|strip|cob/.test(t)) return '39112102'
+  if (/conector|interconector|tapa|uni[oó]n|alimentador|esquina|kit|difusor|enchufe|accesorio|clip|soporte/.test(t)) return '39111800'
+  if (/foco|gu10|mr16/.test(t)) return '39101600'
+  if (/estaca/.test(t)) return '39111600'
   if (/driver|fuente|transformador/.test(t)) return '39112403'
   if (/perfil/.test(t)) return '39112505'
-  if (/downlight|luminaria|spot|proyector|uplight|lampara|lámpara|empotr|trimless/.test(t)) return '39111505'
+  if (/tira|manguera|strip/.test(t)) return '39112102'
+  if (/downlight|luminaria|spot|proyector|uplight|r[aá]ster|lineal|lampara|lámpara|trimless/.test(t)) return '39111505'
+  if (/riel/.test(t)) return '39112505'
   return '39111800'
 }
 
